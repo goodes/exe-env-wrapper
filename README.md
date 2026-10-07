@@ -20,9 +20,12 @@ attached individually.
 | --- | --- |
 | `exe-env-wrapper-windows-amd64.exe` | Windows, console subsystem: interactive terminal use, and agents that already own a console |
 | `exe-env-wrapper-w-windows-amd64.exe` | Windows, GUI subsystem: background agents, no window ever appears |
+| `exe-env-wrapper-windows-arm64.exe` | Windows on ARM, console subsystem |
+| `exe-env-wrapper-w-windows-arm64.exe` | Windows on ARM, GUI subsystem |
 | `exe-env-wrapper-linux-amd64` | Linux |
+| `exe-env-wrapper-linux-arm64` | Linux on ARM |
 
-`arm64` builds of each are published too. `SHA256SUMS` covers the whole set.
+`SHA256SUMS` covers the whole set.
 
 ## How it works
 
