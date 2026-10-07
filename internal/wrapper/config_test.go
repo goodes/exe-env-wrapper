@@ -13,11 +13,11 @@ func TestConfigCandidatesFollowExeName(t *testing.T) {
 		exe  string
 		stem string
 	}{
-		{filepath.Join("C:", "tools", "yt.exe"), "yt"},
-		{filepath.Join("C:", "tools", "yt.EXE"), "yt"},
-		{filepath.Join("C:", "tools", "foo.exe"), "foo"},
-		{filepath.Join("/opt", "bin", "yt"), "yt"},
-		{filepath.Join("/opt", "bin", "my.tool.exe"), "my.tool"},
+		{filepath.Join(volumeRoot(), "tools", "yt.exe"), "yt"},
+		{filepath.Join(volumeRoot(), "tools", "yt.EXE"), "yt"},
+		{filepath.Join(volumeRoot(), "tools", "foo.exe"), "foo"},
+		{filepath.Join(volumeRoot(), "opt", "bin", "yt"), "yt"},
+		{filepath.Join(volumeRoot(), "opt", "bin", "my.tool.exe"), "my.tool"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.exe, func(t *testing.T) {
@@ -200,10 +200,23 @@ func TestResolveTargetRefusesItself(t *testing.T) {
 }
 
 func TestResolvePathLeavesAbsoluteAlone(t *testing.T) {
-	abs := filepath.Join(string(filepath.Separator)+"var", "log", "yt.log")
-	if got := ResolvePath(abs, filepath.Join("/opt", "bin")); got != abs {
+	// A Windows path is only absolute with a volume name: a rooted \var\log is
+	// relative to the current drive, so it is not one.
+	abs := filepath.Join(volumeRoot(), "var", "log", "yt.log")
+	if !filepath.IsAbs(abs) {
+		t.Fatalf("test built %q, which is not an absolute path on %s", abs, runtime.GOOS)
+	}
+	if got := ResolvePath(abs, filepath.Join(volumeRoot(), "opt", "bin")); got != abs {
 		t.Fatalf("ResolvePath(%q) = %q, want it unchanged", abs, got)
 	}
+}
+
+// volumeRoot is the root of a filesystem path that filepath treats as absolute.
+func volumeRoot() string {
+	if runtime.GOOS == "windows" {
+		return `C:\`
+	}
+	return "/"
 }
 
 func exeSuffix() string {
