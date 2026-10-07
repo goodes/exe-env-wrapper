@@ -1,0 +1,17 @@
+# Config for a wrapper copied to yt.exe beside it. The wrapper reads the file
+# named after itself, so this one is yt.yaml.
+#
+# The original uv launcher was renamed from yt.exe to yt-cli.exe first; uv
+# launchers find their environment by location, not by name, so the rename is
+# safe.
+
+target: yt-cli.exe
+
+env:
+  HTTP_PROXY: http://proxy.example:8080
+  HTTPS_PROXY: http://proxy.example:8080
+  NO_PROXY: localhost,127.0.0.1
+
+# Where the wrapper's own failures go. Worth setting for the windowless build,
+# which has no visible stderr. Relative paths are resolved beside the wrapper.
+log: yt-wrapper.log
