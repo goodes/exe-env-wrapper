@@ -244,3 +244,17 @@ func chdir(t *testing.T, dir string) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(prev) })
 }
+
+// A mistyped key is rejected by name rather than ignored. Once a missing
+// target means "resolve from PATH", silently ignoring "targett" would turn a
+// typo into a different mode of operation instead of an error.
+func TestParseConfigRejectsUnknownKeys(t *testing.T) {
+	_, err := ParseConfig([]byte("target: yt-cli.exe\ntargett: typo.exe\n"))
+
+	if err == nil {
+		t.Fatal("ParseConfig accepted an unknown key, want an error")
+	}
+	if !strings.Contains(err.Error(), "targett") {
+		t.Errorf("error %q should name the unknown key", err)
+	}
+}

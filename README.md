@@ -58,7 +58,7 @@ target: yt-dlp-cli.exe
 env:
   HTTP_PROXY: http://proxy.example:8080
   HTTPS_PROXY: http://proxy.example:8080
-  NO_PROXY: localhost,127.0.0.1
+  NO_PROXY: ${system.no_proxy}
 log: yt-dlp-wrapper.log
 '@ | Set-Content -Encoding utf8 yt-dlp.yaml
 ```
@@ -113,6 +113,54 @@ inherited environment plus any earlier entry in the same block, so
 not set expands to nothing, as in a shell. `$$` is a literal `$`, and so is a
 bare `$` not followed by `{`. On Windows the override is case-insensitive, so
 `HTTP_PROXY` replaces an inherited `http_proxy` instead of sitting next to it.
+
+An unknown top-level key is an error rather than ignored, so a mistyped
+`targett:` is reported instead of quietly doing nothing.
+
+**`${system.*}`** reads the proxy configuration from the operating system
+instead of repeating it in the file:
+
+| Name | Value |
+| --- | --- |
+| `${system.http_proxy}` | the system's HTTP proxy, as a URL |
+| `${system.https_proxy}` | the system's HTTPS proxy, as a URL |
+| `${system.no_proxy}` | the system's proxy bypass list, comma-separated |
+
+This exists because clients built on httpx honour `HTTP_PROXY` and
+`HTTPS_PROXY` but never pick up the system's bypass list, so internal hosts get
+sent to the proxy and fail. `NO_PROXY: ${system.no_proxy}` hands them the real
+list without it having to be retyped and kept in step by hand.
+
+They are ordinary values, so they compose:
+
+```yaml
+env:
+  HTTP_PROXY: http://proxy.example:8080   # by hand
+  NO_PROXY: ${system.no_proxy},localhost  # and from the system
+```
+
+A system name that expands to nothing leaves no stray separator behind: with
+no proxy configured, `${system.no_proxy},localhost` is `localhost` rather than
+`,localhost`. That applies only where a system name was used. An unset `${VAR}`
+in the same position keeps its separator, as it does in a shell.
+
+On Windows the source is the per-user WinInet configuration, the same settings
+Windows shows under Settings, Network & internet, Proxy. Windows stores them in
+a shape no client reads directly, so they are translated: the bypass list's
+semicolons become commas, its `<local>` token becomes
+`localhost,127.0.0.1,::1`, and a proxy stored either as a bare `host:port` or
+as a per-scheme `http=...;https=...` list gains the `http://` prefix the
+environment variables are read as. A `socks=` entry is ignored.
+
+With the system set to use no proxy, the two proxy values come back empty but
+the bypass list is still returned, which is what makes "proxy by hand, bypass
+list from the system" work. Nothing configured expands to empty, like an unset
+variable. A misspelled name such as `${system.no_proxyy}` fails the run rather
+than expanding to empty, since a proxy setting that silently does nothing is
+the problem this is here to avoid.
+
+On Linux there is no system proxy store, so the three names resolve from the
+inherited environment, matching either case, keeping one config file portable.
 
 **`log`** (optional) is a file the wrapper appends its own failures to, resolved
 beside the wrapper if relative. Worth setting for the windowless build, whose

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func lookupFrom(env []string) func(string) string {
-	return func(name string) string {
+func lookupFrom(env []string) func(string) (string, error) {
+	return func(name string) (string, error) {
 		for _, entry := range env {
 			if n, v, ok := splitEntry(entry); ok && envKey(n) == envKey(name) {
-				return v
+				return v, nil
 			}
 		}
-		return ""
+		return "", nil
 	}
 }
 

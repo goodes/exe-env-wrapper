@@ -4,8 +4,10 @@
 package wrapper
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -42,7 +44,11 @@ type rawConfig struct {
 // ParseConfig reads the YAML body of a wrapper config.
 func ParseConfig(data []byte) (*Config, error) {
 	var raw rawConfig
-	if err := yaml.Unmarshal(data, &raw); err != nil {
+	// KnownFields rejects a key the struct has no field for, so a mistyped
+	// "targett" is reported rather than silently ignored.
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 	cfg := &Config{

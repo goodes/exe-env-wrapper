@@ -11,6 +11,27 @@ import (
 // through ${VAR} to whatever is visible at that point: the inherited
 // environment plus any earlier entry in the same block.
 func BuildEnv(base []string, vars []EnvVar) ([]string, error) {
+	return buildEnv(base, vars, loadSystemProxy)
+}
+
+// systemPrefix marks the names answered by the operating system rather than by
+// the inherited environment. An environment variable name cannot contain a
+// dot, so the namespace cannot collide with a real one.
+const systemPrefix = "system."
+
+// systemProxyFields maps each valid system.* name to the value it answers
+// from. Looking the name up before the settings are read means a typo is
+// reported without touching the registry, and reported as a typo rather than
+// as an empty value.
+var systemProxyFields = map[string]func(SystemProxy) string{
+	systemPrefix + "http_proxy":  func(s SystemProxy) string { return s.HTTPProxy },
+	systemPrefix + "https_proxy": func(s SystemProxy) string { return s.HTTPSProxy },
+	systemPrefix + "no_proxy":    func(s SystemProxy) string { return s.NoProxy },
+}
+
+// buildEnv is BuildEnv with the system proxy source injected, so the
+// expansion can be tested without a registry.
+func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, error)) ([]string, error) {
 	out := make([]string, len(base))
 	copy(out, base)
 
@@ -20,18 +41,46 @@ func BuildEnv(base []string, vars []EnvVar) ([]string, error) {
 			index[envKey(name)] = i
 		}
 	}
-	lookup := func(name string) string {
+	// The system settings are read at most once, and only if a system.* name
+	// actually appears: most configs never mention one.
+	var (
+		sys        SystemProxy
+		sysLoaded  bool
+		usedSystem bool
+	)
+	lookup := func(name string) (string, error) {
+		if strings.HasPrefix(name, systemPrefix) {
+			field, ok := systemProxyFields[name]
+			if !ok {
+				return "", fmt.Errorf(
+					"unknown ${%s}: valid names are ${system.http_proxy}, ${system.https_proxy} and ${system.no_proxy}",
+					name)
+			}
+			if !sysLoaded {
+				loaded, err := load(base)
+				if err != nil {
+					return "", err
+				}
+				sys, sysLoaded = loaded, true
+			}
+			usedSystem = true
+			return field(sys), nil
+		}
 		if i, ok := index[envKey(name)]; ok {
 			_, value, _ := splitEntry(out[i])
-			return value
+			return value, nil
 		}
-		return ""
+		return "", nil
 	}
 
 	for _, v := range vars {
+		usedSystem = false
 		value, err := Expand(v.Value, lookup)
 		if err != nil {
 			return nil, fmt.Errorf("env %s: %w", v.Name, err)
+		}
+		if usedSystem {
+			value = collapseListSeparators(value)
 		}
 		entry := v.Name + "=" + value
 		if i, ok := index[envKey(v.Name)]; ok {
@@ -68,7 +117,7 @@ func splitEntry(entry string) (name, value string, ok bool) {
 // not set expands to the empty string, as in a shell. A doubled $$ is a literal
 // $, so $${HOME} survives as ${HOME}, and a bare $ not followed by { is literal
 // too: Windows paths and proxy passwords use it freely.
-func Expand(s string, lookup func(string) string) (string, error) {
+func Expand(s string, lookup func(string) (string, error)) (string, error) {
 	if !strings.ContainsRune(s, '$') {
 		return s, nil
 	}
@@ -94,7 +143,11 @@ func Expand(s string, lookup func(string) string) (string, error) {
 			if strings.TrimSpace(name) == "" {
 				return "", fmt.Errorf("empty ${} in %q", s)
 			}
-			b.WriteString(lookup(name))
+			value, err := lookup(name)
+			if err != nil {
+				return "", err
+			}
+			b.WriteString(value)
 			i += 1 + end + 1
 		default:
 			b.WriteByte('$')
