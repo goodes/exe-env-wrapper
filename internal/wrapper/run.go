@@ -1,6 +1,7 @@
 package wrapper
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,8 +36,24 @@ func Run() int {
 		rep.logPath = ResolvePath(path, filepath.Dir(exePath))
 	}
 
+	// Under its own name, and only in the build that has a console to print
+	// to, an argument may be the wrapper's own. Under any other name every
+	// argument belongs to the target, so a wrapped tool's --help stays its own.
+	if ownFlagsEnabled && hasWrapperName(rep.name) {
+		if code, handled := handleOwnFlags(os.Args[1:], os.Stdout); handled {
+			return code
+		}
+	}
+
 	cfg, cfgPath, err := LoadConfig(exePath)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNoConfig):
+		// No config file is the normal state for a wrapper in the wrapper
+		// folder: it runs on the defaults and takes its target from PATH.
+		// Having nothing to hand off to is reported below, by the resolution
+		// that can describe what it searched.
+		cfg, cfgPath = DefaultConfig(), "built-in defaults"
+	case err != nil:
 		rep.report(err)
 		return ExitError
 	}
@@ -44,7 +61,7 @@ func Run() int {
 		rep.logPath = ResolvePath(cfg.Log, filepath.Dir(exePath))
 	}
 
-	target, err := ResolveTarget(cfg.Target, exePath)
+	target, err := resolveTargetFor(cfg, exePath)
 	if err != nil {
 		rep.report(fmt.Errorf("%s: %w", cfgPath, err))
 		return ExitError

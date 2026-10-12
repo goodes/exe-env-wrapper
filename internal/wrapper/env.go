@@ -82,6 +82,9 @@ func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, er
 		if usedSystem {
 			value = collapseListSeparators(value)
 		}
+		if value == "" && v.OmitIfEmpty {
+			continue
+		}
 		entry := v.Name + "=" + value
 		if i, ok := index[envKey(v.Name)]; ok {
 			out[i] = entry

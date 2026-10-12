@@ -8,6 +8,16 @@ proxy, when the thing calling it is an agent that cannot set per-call
 environment variables. One wrapper build serves every tool, because it reads
 the config file named after itself.
 
+It also reads the proxy settings from the operating system, which is the part
+that is hard to do otherwise: clients built on httpx honour `HTTP_PROXY` and
+`HTTPS_PROXY` but never pick up the system's proxy bypass list, so internal
+hosts get sent to the proxy and fail.
+
+```powershell
+exe-env-wrapper-windows-amd64.exe --setup        # once
+exe-env-wrapper-windows-amd64.exe --wrap yt-dlp  # per tool
+```
+
 ## Downloads
 
 Every push builds all binaries and attaches them to the run on the
@@ -29,16 +39,80 @@ attached individually.
 
 ## How it works
 
-1. Rename the original launcher, e.g. `yt.exe` to `yt-cli.exe`. This is safe for
-   uv launchers: they locate their environment by where they sit, not by what
-   they are called.
-2. Copy the wrapper in beside it under the original name, `yt.exe`.
-3. The wrapper reads `<its own name>.yaml` from its own directory. `yt.exe`
-   reads `yt.yaml`, `foo.exe` reads `foo.yaml`.
+The wrapper stands in for a tool under that tool's own name, and reads
+`<its own name>.yaml` from its own directory: `yt.exe` reads `yt.yaml`,
+`foo.exe` reads `foo.yaml`. One build serves every tool.
 
-The wrapper takes no flags of its own. Every argument belongs to the target.
+There are two ways to put it in front of a tool.
 
-## Example: yt-dlp through a proxy
+**The wrapper folder, `--wrap`.** The wrapper is installed into
+`~/.local/wrapper`, which sits ahead of the tool on `PATH`. The real binary is
+never touched, and the wrapper finds it at run time by looking for its own name
+further along `PATH`. Nothing an installer does can undo this: `uv tool
+upgrade` regenerates its launchers and `claude.exe` rewrites itself, and
+neither one knows the wrapper folder exists. Use this wherever callers invoke
+the tool by name.
+
+**In place, `--adapt`.** The real binary is renamed aside with a tag of its
+contents and the wrapper takes its old name. This is for callers that hard-code
+an absolute path, where `PATH` is never consulted and the wrapper folder cannot
+help. It is the weaker option: an installer that regenerates that binary
+overwrites the wrapper and silently undoes it, so `--adapt` has to be re-run
+afterwards.
+
+Renamed to stand in for a tool, the wrapper takes no flags of its own: every
+argument belongs to the target, so a wrapped tool's own `--help` still works.
+Under its own name it takes the flags below.
+
+## Installing
+
+Once, to create the wrapper folder and put it on `PATH`:
+
+```powershell
+.\exe-env-wrapper-windows-amd64.exe --setup
+```
+
+Then per tool:
+
+```powershell
+.\exe-env-wrapper-windows-amd64.exe --wrap yt-dlp
+```
+
+That is the whole thing. The tool keeps working as before, now with the
+system's proxy settings applied, and `yt-dlp` still resolves to the real
+binary wherever it lives.
+
+| Flag | |
+| --- | --- |
+| `--setup` | Create `~/.local/wrapper` and prepend it to your user `PATH`. `--setup --machine` writes the machine `PATH` instead, which needs administrator rights. |
+| `--wrap <name>` | Wrap a tool found on `PATH`. Resolution stays dynamic, so the tool can be upgraded or moved. |
+| `--wrap <path>` | Wrap exactly that binary, pinned in a config file. |
+| `--adapt <path>` | Replace a binary in place. For hard-coded paths only. |
+| `--check` | Report what each installed wrapper resolves to, and whether it is reachable. |
+| `--help`, `--version` | Usage, and the build version. |
+
+`--wrap` adds `--config` to write the defaults out for editing, and `--console`
+to install the console build rather than the windowless one. `--adapt` adds
+`--force` to replace an existing config.
+
+### A note on PATH ordering, if a tool stays unwrapped
+
+Windows composes `PATH` as every machine entry first, then every user entry. A
+user entry therefore can never come before a machine one, whatever their order
+within each list. So `--setup` puts the wrapper folder ahead of anything in
+your user `PATH` — which is where `uv`-installed tools and `claude.exe` live —
+but cannot get ahead of a tool in `C:\Program Files`. For those, either
+`--setup --machine` (administrator rights) or `--adapt`.
+
+`--setup` and `--check` both say which directories still precede the wrapper
+folder, so this shows up when you run them rather than as a tool that
+mysteriously ignores its wrapper.
+
+## Example: adapting a launcher by hand
+
+`--wrap` and `--adapt` do this for you. It is written out here because it shows
+exactly what the wrapper needs on disk, which is worth seeing once if you are
+debugging a setup or arranging one some other way.
 
 `uv tool install` has put a launcher at
 `%USERPROFILE%\.local\bin\yt-dlp.exe`. In PowerShell:
@@ -85,9 +159,11 @@ env:
 YAML
 ```
 
-> **Caveat:** `uv tool upgrade` and `uv tool install --reinstall` regenerate the
-> launcher, which overwrites the wrapper at the original name. Redo steps 1 and
-> 2 afterwards. The `.yaml` file is left alone.
+> **Caveat, for `--adapt` only:** `uv tool upgrade` and
+> `uv tool install --reinstall` regenerate the launcher, which overwrites a
+> wrapper installed over it. Re-run `--adapt` afterwards; the `.yaml` file is
+> left alone. This is the reason to prefer `--wrap`, which an upgrade cannot
+> touch.
 
 ## Config reference
 
@@ -101,8 +177,20 @@ env:                        # optional
 log: yt-wrapper.log         # optional
 ```
 
-**`target`** (required) is the binary to run. Absolute, or relative to the
-wrapper's own directory, never to the caller's working directory. On Windows a
+**`target`** (optional) is the binary to run. Absolute, or relative to the
+wrapper's own directory, never to the caller's working directory.
+
+Left out, it means "run the next match for my own name on `PATH`, skipping my
+own directory". That is what lets a wrapper in the wrapper folder shadow a tool
+without naming where it lives, and keep working when that tool is regenerated
+or moves. Directories are compared by identity rather than by spelling, so a
+wrapper cannot resolve to itself, and another `exe-env-wrapper` is skipped
+rather than handed off to.
+
+With no config file at all, a wrapper applies the system proxy settings and
+resolves its target this way, so installing one is a single copy. A default
+that expands to nothing is left unset rather than applied, so a machine with no
+proxy configured does not have an inherited `HTTP_PROXY` blanked out. On Windows a
 target with no extension also matches `.exe`. Pointing it back at the wrapper is
 refused rather than looped.
 
@@ -178,8 +266,15 @@ A `.yml` extension works too, with `.yaml` preferred when both exist.
   re-escaped from a parse of it.
 - stdin, stdout and stderr are passed through.
 - The target's exit code is the wrapper's exit code. `125` means the wrapper
-  itself could not start the target: no config, bad config, or target missing.
-  Those failures print to stderr and go to `log` if it is set.
+  itself could not start the target: bad config, target missing, or nothing of
+  its own name further along `PATH`. Those failures print to stderr and go to
+  `log` if it is set. A missing config file is not one of them: a wrapper
+  without one runs on the built-in defaults.
+- Under its own name the exit status is the command's own: `0` for success, `1`
+  for a failed `--setup`, `--wrap` or `--adapt`, or for a `--check` that found
+  a problem, and `2` for an argument it does not recognise.
+- An unknown key in the config file is an error rather than ignored, so a
+  mistyped `targett:` is reported instead of quietly doing nothing.
 - On Linux the wrapper `exec`s in place, replacing its own process, so nothing
   extra sits between the caller and the target.
 
@@ -239,6 +334,13 @@ Or the MSI from [go.dev/dl](https://go.dev/dl/). Open a new terminal afterwards
 so `go` is on `PATH`.
 
 ## Not here yet
+
+Signed releases. Windows Smart App Control judges a binary on its signature
+and reputation, and blocks an unsigned one whether it was downloaded or built
+locally, with no way to allow it. Until the released binaries are signed, a
+machine with Smart App Control enabled cannot run them. Azure Trusted Signing
+or the SignPath Foundation would both fix this from CI.
+
 
 A Python implementation of the same behaviour, built with PyInstaller
 (`--onefile`, plus `--noconsole` for the windowless variant), is in the design

@@ -32,6 +32,36 @@ type Config struct {
 type EnvVar struct {
 	Name  string
 	Value string
+	// OmitIfEmpty leaves the variable as inherited when the value expands to
+	// nothing, rather than setting it empty. Only the built-in defaults use
+	// it: on a machine with no proxy configured ${system.http_proxy} expands
+	// to nothing, and a default that blanked a proxy the caller had set would
+	// do active harm. A value written in a config file is always applied, so
+	// setting a variable empty on purpose still works.
+	OmitIfEmpty bool
+}
+
+// ErrNoConfig reports that no config file exists beside the wrapper.
+//
+// It is not necessarily a failure. A wrapper installed into the wrapper folder
+// needs no config file: it runs on the built-in defaults and resolves its
+// target from PATH, which is what makes installing one a single copy.
+var ErrNoConfig = errors.New("no config file")
+
+// DefaultConfig is what a wrapper with no config file applies: the system's
+// proxy settings, and no target, so the target comes from PATH.
+//
+// The bypass list is the point. A client built on httpx picks up the proxy
+// variables on its own but never the system's bypass list, so NO_PROXY is the
+// one that has to be handed to it.
+func DefaultConfig() *Config {
+	return &Config{
+		Env: []EnvVar{
+			{Name: "HTTP_PROXY", Value: "${system.http_proxy}", OmitIfEmpty: true},
+			{Name: "HTTPS_PROXY", Value: "${system.https_proxy}", OmitIfEmpty: true},
+			{Name: "NO_PROXY", Value: "${system.no_proxy}", OmitIfEmpty: true},
+		},
+	}
 }
 
 // rawConfig decodes env as a node rather than a map so the ordering survives.
@@ -55,9 +85,11 @@ func ParseConfig(data []byte) (*Config, error) {
 		Target: strings.TrimSpace(raw.Target),
 		Log:    strings.TrimSpace(raw.Log),
 	}
-	if cfg.Target == "" {
-		return nil, errors.New(`missing required key "target"`)
-	}
+	// An absent target is not an error: it means "resolve the next match for my
+	// own name on PATH". That is what lets a wrapper in the wrapper folder
+	// shadow a tool whose real location it does not need to know, and survive
+	// that tool being regenerated or moved. Having nowhere to hand off to is
+	// reported at resolution time, where the search can be described.
 	env, err := parseEnv(&raw.Env)
 	if err != nil {
 		return nil, err
@@ -140,7 +172,7 @@ func FindConfig(exePath string) (string, error) {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("no config file: looked for %s", strings.Join(candidates, " and "))
+	return "", fmt.Errorf("%w: looked for %s", ErrNoConfig, strings.Join(candidates, " and "))
 }
 
 // LoadConfig finds and parses the config belonging to exePath.

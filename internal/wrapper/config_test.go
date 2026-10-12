@@ -108,11 +108,11 @@ env:
 		t.Fatalf("target/log = %q/%q", cfg.Target, cfg.Log)
 	}
 	want := []EnvVar{
-		{"HTTPS_PROXY", "http://proxy.example:8080"},
-		{"HTTP_PROXY", "http://proxy.example:8080"},
-		{"NO_PROXY", "localhost,127.0.0.1"},
-		{"PORT", "8080"},
-		{"EMPTY", ""},
+		{Name: "HTTPS_PROXY", Value: "http://proxy.example:8080"},
+		{Name: "HTTP_PROXY", Value: "http://proxy.example:8080"},
+		{Name: "NO_PROXY", Value: "localhost,127.0.0.1"},
+		{Name: "PORT", Value: "8080"},
+		{Name: "EMPTY", Value: ""},
 	}
 	if len(cfg.Env) != len(want) {
 		t.Fatalf("env = %v, want %v", cfg.Env, want)
@@ -126,8 +126,6 @@ env:
 
 func TestParseConfigRejectsBadInput(t *testing.T) {
 	cases := map[string]string{
-		"missing target":  "env:\n  A: 1\n",
-		"empty target":    "target: \"\"\n",
 		"env not mapping": "target: a\nenv:\n  - A=1\n",
 		"env nested":      "target: a\nenv:\n  A:\n    B: 1\n",
 		"broken yaml":     "target: [a\n",
@@ -136,6 +134,27 @@ func TestParseConfigRejectsBadInput(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := ParseConfig([]byte(body)); err == nil {
 				t.Fatalf("ParseConfig(%q) succeeded, want error", body)
+			}
+		})
+	}
+}
+
+// An absent or empty target is no longer a parse error: it means "resolve the
+// next match for my own name on PATH", which is how a wrapper in the wrapper
+// folder shadows a tool without naming where that tool lives.
+func TestParseConfigAllowsAbsentTarget(t *testing.T) {
+	for name, body := range map[string]string{
+		"absent": "env:\n  A: \"1\"\n",
+		"empty":  "target: \"\"\n",
+		"blank":  "target: \"   \"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := ParseConfig([]byte(body))
+			if err != nil {
+				t.Fatalf("ParseConfig(%q): %v", body, err)
+			}
+			if cfg.Target != "" {
+				t.Errorf("Target = %q, want empty", cfg.Target)
 			}
 		})
 	}

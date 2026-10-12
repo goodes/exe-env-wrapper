@@ -196,8 +196,15 @@ func TestEndToEndMissingConfig(t *testing.T) {
 	if res.code != ExitError {
 		t.Fatalf("exit code = %d, want %d", res.code, ExitError)
 	}
-	if !strings.Contains(res.stderr, "yt.yaml") || !strings.Contains(res.stderr, "no config file") {
-		t.Fatalf("stderr = %q, want a message naming the missing config", res.stderr)
+	// A missing config file is no longer a failure on its own: the wrapper runs
+	// on built-in defaults and takes its target from PATH. What fails here is
+	// having nothing to hand off to, since this wrapper is named "yt" and no
+	// other yt is on PATH.
+	if !strings.Contains(res.stderr, "found on PATH") {
+		t.Fatalf("stderr = %q, want a message about finding nothing on PATH", res.stderr)
+	}
+	if !strings.Contains(res.stderr, executableName("yt")) {
+		t.Fatalf("stderr = %q, want the name it searched for", res.stderr)
 	}
 }
 
@@ -245,8 +252,13 @@ func TestEndToEndBootstrapLogEnvVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading log: %v", err)
 	}
-	if !strings.Contains(string(body), "no config file") {
-		t.Fatalf("log = %q, want the config failure recorded", body)
+	// The point of this test is that a bootstrap-phase failure reaches the log
+	// named by the environment, which matters most for the windowless build
+	// whose stderr goes nowhere. Which failure it is matters less: with no
+	// config file the wrapper now runs on defaults, so the failure recorded
+	// here is having no target to resolve to.
+	if !strings.Contains(string(body), "found on PATH") {
+		t.Fatalf("log = %q, want the bootstrap failure recorded", body)
 	}
 }
 

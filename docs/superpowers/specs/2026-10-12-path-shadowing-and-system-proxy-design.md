@@ -1,7 +1,26 @@
 # Design: system proxy expansion, PATH shadowing, and self-installation
 
 Date: 2026-10-12
-Status: proposed, awaiting review
+Status: implemented. The proxy work shipped in v0.2.0; the PATH-shadowing and
+self-installation work followed on the feat/path-shadowing branch.
+
+Changes made while implementing, beyond what is written below:
+
+- `.exe`-only wrapping, install-time-only PATH checking, the two `--wrap`
+  argument forms and `--adapt` never consulting PATH were all decided after
+  the first draft and are reflected in the text.
+- `--setup` writes the user PATH by default, with `--machine` for the machine
+  one. Windows composes PATH as machine entries then user entries, so a user
+  entry can never precede a machine one; the spec had assumed prepending was
+  enough.
+- The built-in defaults skip any variable that expands to nothing, which the
+  spec had not considered. Without it, a machine with no proxy configured
+  would have had an inherited HTTP_PROXY blanked out by the defaults.
+- A system name expanding to nothing no longer leaves a stray list separator.
+  End-to-end testing found `NO_PROXY=,localhost`, which the unit tests had
+  missed by only ever supplying a populated list.
+- Unknown arguments under the wrapper's own name exit 2 with usage, rather
+  than falling through to normal wrapper behaviour.
 
 ## Purpose
 

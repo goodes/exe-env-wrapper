@@ -35,8 +35,8 @@ func valueOf(t *testing.T, env []string, name string) (string, bool) {
 func TestBuildEnvOverridesAndInherits(t *testing.T) {
 	base := []string{"PATH=/usr/bin", "HTTP_PROXY=http://old:1", "HOME=/home/u"}
 	got, err := BuildEnv(base, []EnvVar{
-		{"HTTP_PROXY", "http://proxy.example:8080"},
-		{"NO_PROXY", "localhost,127.0.0.1"},
+		{Name: "HTTP_PROXY", Value: "http://proxy.example:8080"},
+		{Name: "NO_PROXY", Value: "localhost,127.0.0.1"},
 	})
 	if err != nil {
 		t.Fatalf("BuildEnv: %v", err)
@@ -59,7 +59,7 @@ func TestBuildEnvOverridesAndInherits(t *testing.T) {
 
 func TestBuildEnvDoesNotMutateBase(t *testing.T) {
 	base := []string{"A=1"}
-	if _, err := BuildEnv(base, []EnvVar{{"A", "2"}, {"B", "3"}}); err != nil {
+	if _, err := BuildEnv(base, []EnvVar{{Name: "A", Value: "2"}, {Name: "B", Value: "3"}}); err != nil {
 		t.Fatalf("BuildEnv: %v", err)
 	}
 	if base[0] != "A=1" || len(base) != 1 {
@@ -69,11 +69,11 @@ func TestBuildEnvDoesNotMutateBase(t *testing.T) {
 
 func TestBuildEnvExpandsFromInheritedAndEarlierEntries(t *testing.T) {
 	got, err := BuildEnv([]string{"PATH=/usr/bin", "HOST=proxy.example"}, []EnvVar{
-		{"HTTP_PROXY", "http://${HOST}:8080"},
-		{"HTTPS_PROXY", "${HTTP_PROXY}"},
-		{"PATH", "/opt/tools:${PATH}"},
-		{"LITERAL", "cost $$5 and $${HOST}"},
-		{"UNSET", "[${NOPE}]"},
+		{Name: "HTTP_PROXY", Value: "http://${HOST}:8080"},
+		{Name: "HTTPS_PROXY", Value: "${HTTP_PROXY}"},
+		{Name: "PATH", Value: "/opt/tools:${PATH}"},
+		{Name: "LITERAL", Value: "cost $$5 and $${HOST}"},
+		{Name: "UNSET", Value: "[${NOPE}]"},
 	})
 	if err != nil {
 		t.Fatalf("BuildEnv: %v", err)
@@ -94,7 +94,7 @@ func TestBuildEnvExpandsFromInheritedAndEarlierEntries(t *testing.T) {
 
 func TestBuildEnvRejectsBrokenExpansion(t *testing.T) {
 	for _, value := range []string{"${UNCLOSED", "${}", "${   }"} {
-		if _, err := BuildEnv(nil, []EnvVar{{"A", value}}); err == nil {
+		if _, err := BuildEnv(nil, []EnvVar{{Name: "A", Value: value}}); err == nil {
 			t.Fatalf("BuildEnv accepted %q", value)
 		} else if !strings.Contains(err.Error(), "env A") {
 			t.Fatalf("error should name the variable, got %v", err)
@@ -104,7 +104,7 @@ func TestBuildEnvRejectsBrokenExpansion(t *testing.T) {
 
 func TestBuildEnvKeepsWindowsDriveEntries(t *testing.T) {
 	base := []string{`=C:=C:\work`, "A=1"}
-	got, err := BuildEnv(base, []EnvVar{{"A", "2"}})
+	got, err := BuildEnv(base, []EnvVar{{Name: "A", Value: "2"}})
 	if err != nil {
 		t.Fatalf("BuildEnv: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestBuildEnvOverrideIsCaseInsensitiveOnWindows(t *testing.T) {
 		t.Skip("environment names are case-sensitive off Windows")
 	}
 	got, err := BuildEnv([]string{"http_proxy=http://old:1"}, []EnvVar{
-		{"HTTP_PROXY", "http://new:2"},
+		{Name: "HTTP_PROXY", Value: "http://new:2"},
 	})
 	if err != nil {
 		t.Fatalf("BuildEnv: %v", err)
