@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,12 +82,40 @@ func runWrapperMode(exePath string) int {
 		return ExitError
 	}
 
-	code, err := execTarget(target, os.Args[1:], env)
+	// Recorded before the target starts, so the log shows an invocation that
+	// then hung or was killed, not only ones that returned.
+	rep.recordRun(target, os.Args[1:])
+
+	code, err := runTarget(cfg, exePath, target, env, rep)
 	if err != nil {
 		rep.report(fmt.Errorf("cannot run %s: %w", target, err))
 		return ExitError
 	}
 	return code
+}
+
+// runTarget hands off to the target, through the trace path if one is asked
+// for.
+//
+// Without a trace the child inherits the standard handles directly and, on
+// Unix, the wrapper is replaced by the target altogether: nothing sits between
+// the caller and the tool, which is what keeps a stdio protocol exact. A trace
+// gives that up deliberately.
+func runTarget(cfg *Config, exePath, target string, env []string, rep *reporter) (int, error) {
+	if cfg.Trace == "" {
+		return execTarget(target, os.Args[1:], env)
+	}
+
+	path := ResolvePath(cfg.Trace, filepath.Dir(exePath))
+	sink, err := newTraceSink(path, rep.name, rep.stderr)
+	if err != nil {
+		// A trace that cannot be opened is reported, and the tool still runs
+		// untraced. Losing a debugging aid must not take the tool down.
+		rep.report(err)
+		return execTarget(target, os.Args[1:], env)
+	}
+	defer sink.Close()
+	return execTargetTraced(target, os.Args[1:], env, sink)
 }
 
 // reporter writes wrapper failures to stderr and, when a log path is known, to
@@ -97,8 +127,43 @@ type reporter struct {
 	logPath string
 }
 
+// recordRun notes an invocation in the log file: what was asked for, and what
+// it resolved to. Nothing is written when no log is configured, so the common
+// case still touches no files.
+//
+// The arguments are rendered with any that contain spaces quoted, which is a
+// readable approximation rather than the exact bytes the target receives. On
+// Windows the raw command line is forwarded verbatim and is logged as such.
+func (r *reporter) recordRun(target string, args []string) {
+	if r.logPath == "" {
+		return
+	}
+	r.write(fmt.Sprintf("run %s %s", target, renderArgs(args)))
+}
+
+// renderArgs makes an argument list readable in a log line.
+func renderArgs(args []string) string {
+	if raw := rawCommandTail(); raw != "" {
+		return raw
+	}
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "" || strings.ContainsAny(arg, " \t\"") {
+			quoted = append(quoted, strconv.Quote(arg))
+			continue
+		}
+		quoted = append(quoted, arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
 func (r *reporter) report(err error) {
 	fmt.Fprintf(r.stderr, "%s: %v\n", r.name, err)
+	r.write(err.Error())
+}
+
+// write appends one line to the log file, if one is configured.
+func (r *reporter) write(message string) {
 	if r.logPath == "" {
 		return
 	}
@@ -108,6 +173,6 @@ func (r *reporter) report(err error) {
 		return
 	}
 	defer f.Close()
-	fmt.Fprintf(f, "%s %s (exe-env-wrapper %s): %v\n",
-		time.Now().Format(time.RFC3339), r.name, Version, err)
+	fmt.Fprintf(f, "%s %s (exe-env-wrapper %s): %s\n",
+		time.Now().Format(time.RFC3339), r.name, Version, message)
 }

@@ -70,3 +70,15 @@ func usableHandle(f *os.File) *os.File {
 	}
 	return f
 }
+
+// configureSpawn applies the Windows-specific spawn settings that execTarget
+// sets up inline: the caller's original quoting, and the creation flags that
+// decide whether a console child gets a window.
+func configureSpawn(cmd *exec.Cmd, target string) {
+	if tail := rawArgTail(); tail != "" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: syscall.EscapeArg(target) + " " + tail}
+	} else {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags = creationFlags
+}

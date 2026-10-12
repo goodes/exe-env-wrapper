@@ -85,9 +85,9 @@ binary wherever it lives.
 | Command | |
 | --- | --- |
 | `setup [--machine]` | Create `~/.local/wrapper` and prepend it to your user `PATH`. `--machine` writes the machine `PATH` instead, which needs administrator rights and is the only way to get ahead of a tool in `C:\Program Files`. |
-| `wrap <name> [--config] [--console]` | Wrap a tool found on `PATH`. Resolution stays dynamic, so the tool can be upgraded or moved. |
+| `wrap <name> [--config] [--windowless]` | Wrap a tool found on `PATH`. Resolution stays dynamic, so the tool can be upgraded or moved. |
 | `wrap <path>` | Wrap exactly that binary, pinned in a config file. |
-| `adapt <path> [--force] [--console]` | Replace a binary in place. For hard-coded paths only. |
+| `adapt <path> [--force] [--windowless]` | Replace a binary in place. For hard-coded paths only. |
 | `check` | Report what each installed wrapper resolves to, and whether it is reachable. |
 | `help [command]`, `version` | This list, detail on one command, and the build version. |
 
@@ -263,12 +263,29 @@ the problem this is here to avoid.
 On Linux there is no system proxy store, so the three names resolve from the
 inherited environment, matching either case, keeping one config file portable.
 
-**`log`** (optional) is a file the wrapper appends its own failures to, resolved
-beside the wrapper if relative. Worth setting for the windowless build, whose
-stderr usually goes nowhere. It only ever records the wrapper's own problems;
-the target's output is never touched. To catch a config file so broken that
-`log` itself cannot be read, set `EXE_ENV_WRAPPER_LOG` in the environment
-instead.
+**`log`** (optional) is a file the wrapper appends its own record to, resolved
+beside the wrapper if relative: one line for the command line of every run, and
+one for any failure of its own. Nothing is written when it is not set. Worth
+setting for the windowless build, whose stderr usually goes nowhere. To catch a
+config file so broken that `log` itself cannot be read, set
+`EXE_ENV_WRAPPER_LOG` in the environment instead.
+
+**`trace`** (optional, off unless set) copies the target's `stdin`, `stdout`
+and `stderr` into a file, each line marked `<<` for input, `>>` for output and
+`!!` for stderr. For a stdio tool, an MCP server over stdio among them, that is
+the whole conversation.
+
+It costs something, which is why it is not the default. Without it the target
+inherits the standard handles directly, and on Linux the wrapper `exec`s in
+place and ceases to exist, so nothing sits between the caller and the tool.
+Tracing puts the wrapper in that data path. The real stream is always written
+before the transcript, so a slow or failing trace cannot delay a protocol
+message, and nothing waits for a newline — a peer may be blocked on a reply
+that has not been terminated yet. Even so, turn it on to debug something rather
+than leaving it on.
+
+A trace that cannot be opened is reported and the tool runs anyway: losing a
+debugging aid must not take the tool down with it.
 
 A `.yml` extension works too, with `.yaml` preferred when both exist.
 
@@ -309,7 +326,24 @@ does both, so there are two builds from the same source:
   from `cmd` interactively, a GUI-subsystem binary is not waited for, so use the
   console build there.
 
-Pick the windowless build for agents, the console build for yourself.
+**Pick the console build** unless you have a specific reason not to, which is
+why `wrap` installs it by default. Command-line tools are what gets wrapped,
+and their callers — a shell, or an agent running them as a shell — already own
+a console. A console-subsystem child *inherits* that console, so nothing is
+allocated and no window appears. Windows only allocates a new console when the
+parent has none.
+
+The windowless build is for that narrower case: a host with no console of its
+own that also does not pass `CREATE_NO_WINDOW`, where a console wrapper would
+make Windows allocate a console and flash a window. Install it with
+`wrap <tool> --windowless`.
+
+Do not use it for a tool you run from a shell. A shell decides whether to wait
+from the subsystem alone, so it does not wait for a GUI-subsystem binary: you
+get your prompt back immediately, no output, and the wrong exit status. A
+caller that creates pipes and waits on the process handle — an MCP host, or
+Node's `child_process` — does get the full stream from either build, so this is
+a shell problem rather than a general one.
 
 ## Building
 

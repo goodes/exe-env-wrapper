@@ -22,6 +22,33 @@ Changes made while implementing, beyond what is written below:
 - Unknown arguments under the wrapper's own name exit 2 with usage, rather
   than falling through to normal wrapper behaviour.
 
+Later, in v0.3.1 and v0.3.2:
+
+- The commands and their options became one table that both the parser and the
+  help text read from. The hand-written help had listed the commands and none
+  of their options, so `--machine`, `--config`, `--console` and `--force` all
+  shipped undocumented while a test claimed the usage was covered.
+- Dashes became optional, since under the wrapper's own name a bare word is
+  unambiguous. `Run` split into the two programs it always was, chosen once by
+  the name at startup.
+- The windowless build stopped being the default. It was chosen on the premise
+  that background agents are the main caller; the actual callers are shells and
+  agents running tools as shells, which own a console that a console-subsystem
+  child inherits, so nothing is allocated and no window appears. A shell does
+  not wait for a GUI-subsystem binary at all, so the windowless default would
+  have delivered no output and the wrong exit status. It is now `--windowless`,
+  for a host with no console that does not pass CREATE_NO_WINDOW.
+- `log` records the command line of every run, not only failures, with the raw
+  command line on Windows so the caller's own quoting is preserved.
+- `trace` was added: an opt-in transcript of the target's stdin, stdout and
+  stderr. It is opt-in because it puts the wrapper in the data path, which the
+  default avoids entirely — the target inherits the handles directly, and on
+  Unix the wrapper is replaced by the target. The real stream is always written
+  before the transcript so a slow trace cannot delay a protocol message, and
+  nothing waits for a newline. Driven by stdio MCP servers being a main use
+  case, which also added round-trip tests that fail on buffering rather than
+  hanging.
+
 ## Purpose
 
 Two problems, one wrapper.

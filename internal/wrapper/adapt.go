@@ -160,7 +160,10 @@ func runAdapt(out io.Writer, file string, opts map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("cannot determine own path: %w", err)
 	}
-	source, windowless := wrapperSourceExe(self, opts["--console"])
+	source, windowless, err := wrapperSourceExe(self, opts["--windowless"])
+	if err != nil {
+		return err
+	}
 	if windowless {
 		fmt.Fprintf(out, "using     %s (windowless)\n", filepath.Base(source))
 	}

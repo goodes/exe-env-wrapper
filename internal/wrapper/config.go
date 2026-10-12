@@ -22,9 +22,14 @@ type Config struct {
 	Target string
 	// Env holds the variables to set or override, in the order the file lists them.
 	Env []EnvVar
-	// Log is an optional file that wrapper errors are appended to. The windowless
-	// Windows build has no visible stderr, so it is often the only way to see them.
+	// Log is an optional file the wrapper appends its own record to: the command
+	// line of every run, and any failure of its own. The windowless Windows
+	// build has no visible stderr, so it is often the only way to see them.
 	Log string
+	// Trace is an optional file the target's stdin, stdout and stderr are
+	// copied into. Setting it puts the wrapper in the data path, which the
+	// default deliberately avoids, so it is off unless asked for.
+	Trace string
 }
 
 // EnvVar is a single env entry. Keeping the file's order lets a later value
@@ -69,6 +74,7 @@ type rawConfig struct {
 	Target string    `yaml:"target"`
 	Env    yaml.Node `yaml:"env"`
 	Log    string    `yaml:"log"`
+	Trace  string    `yaml:"trace"`
 }
 
 // ParseConfig reads the YAML body of a wrapper config.
@@ -84,6 +90,7 @@ func ParseConfig(data []byte) (*Config, error) {
 	cfg := &Config{
 		Target: strings.TrimSpace(raw.Target),
 		Log:    strings.TrimSpace(raw.Log),
+		Trace:  strings.TrimSpace(raw.Trace),
 	}
 	// An absent target is not an error: it means "resolve the next match for my
 	// own name on PATH". That is what lets a wrapper in the wrapper folder

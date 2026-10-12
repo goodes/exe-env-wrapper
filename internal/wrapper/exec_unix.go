@@ -2,7 +2,10 @@
 
 package wrapper
 
-import "syscall"
+import (
+	"os/exec"
+	"syscall"
+)
 
 // execTarget replaces the wrapper process with the target. One less process in
 // the tree, and signals, job control and the exit code reach the caller
@@ -13,3 +16,7 @@ func execTarget(target string, args, env []string) (int, error) {
 	argv = append(argv, args...)
 	return ExitError, syscall.Exec(target, argv, env)
 }
+
+// configureSpawn has nothing to add here. It exists so the traced path, which
+// cannot exec in place, can be written once for both platforms.
+func configureSpawn(*exec.Cmd, string) {}

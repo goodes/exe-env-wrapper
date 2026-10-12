@@ -188,21 +188,31 @@ func copyExecutable(src, dest string) error {
 	return nil
 }
 
-// wrapperSourceExe picks the binary to install: a windowless build sitting
-// beside this one if there is one, otherwise this binary.
+// wrapperSourceExe picks the binary to install: this one, unless the
+// windowless build is asked for by name.
 //
-// Background agents are the main reason this exists, and for them the
-// windowless build is the right one. Preferring a sibling keeps the console
-// build able to install it without the windowless build needing flags of its
-// own, which it has no console to print to.
-func wrapperSourceExe(selfPath string, forceConsole bool) (path string, windowless bool) {
-	if forceConsole {
-		return selfPath, false
+// The console build is the default because it is the one that always works.
+// Command-line tools are what gets wrapped, and their callers — a shell, or an
+// agent running them as a shell — already own a console, which a
+// console-subsystem child inherits, so nothing is allocated and no window
+// appears. The same wrapper also still works when run by hand to debug it.
+//
+// The windowless build only earns its place under a host that has no console
+// of its own and does not pass CREATE_NO_WINDOW, where a console-subsystem
+// child would make Windows allocate one and flash a window. It is the worse
+// default: from a shell it is not waited for, delivers no output, and reports
+// the wrong exit status, because a shell decides whether to wait from the
+// subsystem alone.
+func wrapperSourceExe(selfPath string, wantWindowless bool) (path string, windowless bool, err error) {
+	if !wantWindowless {
+		return selfPath, false, nil
 	}
 	if sibling, ok := findWindowlessSibling(selfPath); ok {
-		return sibling, true
+		return sibling, true, nil
 	}
-	return selfPath, false
+	return "", false, fmt.Errorf(
+		"no windowless build found beside %s; download %s-w-<platform>.exe into the same directory",
+		filepath.Dir(selfPath), wrapperNamePrefix)
 }
 
 // isWindowlessName reports whether a base name is a windowless build.
@@ -254,7 +264,10 @@ func runWrap(out io.Writer, tool string, opts map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("cannot determine own path: %w", err)
 	}
-	source, windowless := wrapperSourceExe(self, opts["--console"])
+	source, windowless, err := wrapperSourceExe(self, opts["--windowless"])
+	if err != nil {
+		return err
+	}
 	if windowless {
 		fmt.Fprintf(out, "using    %s (windowless)\n", filepath.Base(source))
 	}

@@ -68,14 +68,24 @@ later. check reports the same thing.`,
 					"a wrapper without one already applies those defaults.",
 			},
 			{
-				name: "--console",
-				help: "Install the console build rather than the windowless one. By\n" +
-					"default a windowless build sitting beside this one is preferred,\n" +
-					"since background agents are the main reason to wrap anything.",
+				name: "--windowless",
+				help: "Install the windowless build instead of this one. Only wanted\n" +
+					"under a host that has no console of its own and does not pass\n" +
+					"CREATE_NO_WINDOW, where a console wrapper would make Windows\n" +
+					"allocate a console and flash a window. Never use it for a tool\n" +
+					"you run from a shell: a shell decides whether to wait from the\n" +
+					"subsystem alone, so it would not wait, would show no output, and\n" +
+					"would report the wrong exit status. Needs the -w build in this\n" +
+					"same directory.",
 			},
 		},
 		detail: `Installs a wrapper into the wrapper folder under the tool's own name. The real
 binary is never renamed, moved or modified.
+
+The console build is installed by default, and is what you want for a
+command-line tool. Its callers — a shell, or an agent running it as a shell —
+already own a console, which the wrapper and the tool inherit, so nothing is
+allocated and no window appears.
 
 A bare name is resolved on PATH, and resolution stays dynamic: the wrapper
 finds the real tool at run time by looking for its own name further along PATH.
@@ -102,8 +112,10 @@ An existing config file is left alone, never overwritten.`,
 				help: "Replace an existing config file instead of leaving it alone.",
 			},
 			{
-				name: "--console",
-				help: "Install the console build rather than the windowless one.",
+				name: "--windowless",
+				help: "Install the windowless build instead of this one. See\n" +
+					"\"help wrap\": it is almost never what you want for a\n" +
+					"command-line tool.",
 			},
 		},
 		detail: `Renames a binary aside, tagged with a hash of its contents, and installs the
@@ -164,8 +176,13 @@ yt.yaml, foo.exe reads foo.yaml. A .yml extension works too.
   env:                      Optional. Variables to set or override. Anything
     HTTP_PROXY: http://p:1  not named here is inherited unchanged.
   log: wrapper.log          Optional. A file the wrapper appends its own
-                            failures to. Worth setting for the windowless
-                            build, whose stderr usually goes nowhere.
+                            record to: the command line of every run, and any
+                            failure of its own. Nothing is written when it is
+                            not set.
+  trace: wrapper-trace.log  Optional, and off unless set. Copies the target's
+                            stdin, stdout and stderr into a file, each line
+                            marked << for input, >> for output and !! for
+                            stderr.
 
 Values may refer to ${VAR}, resolved against the inherited environment plus any
 earlier entry in the same block, so PATH: C:\extra\bin;${PATH} extends rather
@@ -191,7 +208,18 @@ that expands to nothing is left unset rather than applied, so a machine with no
 proxy configured does not have an inherited HTTP_PROXY blanked out.
 
 An unknown key is an error rather than ignored, so a mistyped targett: is
-reported instead of quietly doing nothing.`,
+reported instead of quietly doing nothing.
+
+log and trace do different jobs and cost different amounts. log is one line
+per run and never touches the target's streams. trace puts the wrapper in the
+data path: without it the target inherits the standard handles directly, and on
+Linux the wrapper is replaced by the target altogether, so nothing sits between
+the caller and the tool. Tracing gives that up, and writes whatever passed
+through to a plain file, which for a stdio protocol means the whole
+conversation. Turn it on to debug something, not to leave running.
+
+A trace that cannot be opened is reported and the tool runs anyway: losing a
+debugging aid must not take the tool down.`,
 }
 
 // lookupCommand finds a command by name, with or without the leading dashes.

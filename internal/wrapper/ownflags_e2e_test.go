@@ -130,25 +130,36 @@ func TestEndToEndHelpOnACommandNamesItsOptions(t *testing.T) {
 	}
 
 	_, wrapper := install(t, "exe-env-wrapper", "")
-	tests := map[string][]string{
-		"setup":  {"--machine"},
-		"wrap":   {"--config", "--console"},
-		"adapt":  {"--force", "--console"},
-		"config": {"target:", "${system.no_proxy}"},
-	}
-	for topic, wants := range tests {
-		t.Run(topic, func(t *testing.T) {
-			res := run(t, wrapper, "", nil, "help", topic)
+
+	// Walked from the table rather than listed here. A hand-written list is
+	// what let the options go undocumented in the first place, and then went
+	// stale again when --console became --windowless.
+	for _, cmd := range commands {
+		t.Run(cmd.name, func(t *testing.T) {
+			res := run(t, wrapper, "", nil, "help", cmd.name)
 			if res.code != 0 {
 				t.Fatalf("exit code = %d, want 0\nstdout: %s", res.code, res.stdout)
 			}
-			for _, want := range wants {
-				if !strings.Contains(res.stdout, want) {
-					t.Errorf("help %s does not mention %q:\n%s", topic, want, res.stdout)
+			for _, opt := range cmd.options {
+				if !strings.Contains(res.stdout, opt.name) {
+					t.Errorf("help %s does not mention %q:\n%s", cmd.name, opt.name, res.stdout)
 				}
 			}
 		})
 	}
+
+	// The config topic is not a command, so it is checked by content.
+	t.Run("config", func(t *testing.T) {
+		res := run(t, wrapper, "", nil, "help", "config")
+		if res.code != 0 {
+			t.Fatalf("exit code = %d, want 0\nstdout: %s", res.code, res.stdout)
+		}
+		for _, want := range []string{"target:", "env:", "log:", "trace:", "${system.no_proxy}"} {
+			if !strings.Contains(res.stdout, want) {
+				t.Errorf("help config does not mention %q:\n%s", want, res.stdout)
+			}
+		}
+	})
 }
 
 // A bare word under an adapted name belongs to the tool. This is the risk the

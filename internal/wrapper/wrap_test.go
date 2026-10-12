@@ -207,7 +207,11 @@ func TestWrapWarnsWhenFolderIsNotOnPath(t *testing.T) {
 
 // The windowless build is what a background agent needs, so a sibling one is
 // preferred over self-copying. --console overrides it.
-func TestWrapperSourceExePrefersWindowlessSibling(t *testing.T) {
+// The console build is installed even when a windowless one sits beside it.
+// Command-line tools are what gets wrapped, and their callers own a console,
+// which the wrapper inherits; the windowless build would not be waited for by
+// a shell, would deliver no output and would report the wrong exit status.
+func TestWrapperSourceExeDefaultsToConsoleEvenWithASiblingPresent(t *testing.T) {
 	if executableName("x") != "x.exe" {
 		t.Skip("the windowless build is a Windows notion")
 	}
@@ -217,13 +221,37 @@ func TestWrapperSourceExePrefersWindowlessSibling(t *testing.T) {
 	writeFile(t, console, "console")
 	writeFile(t, windowless, "windowless")
 
-	got, isWindowless := wrapperSourceExe(console, false)
-	if got != windowless || !isWindowless {
-		t.Errorf("got %q (windowless=%v), want %q", got, isWindowless, windowless)
+	got, isWindowless, err := wrapperSourceExe(console, false)
+	if err != nil {
+		t.Fatalf("wrapperSourceExe: %v", err)
+	}
+	if got != console || isWindowless {
+		t.Errorf("got %q (windowless=%v), want %q and false", got, isWindowless, console)
 	}
 
-	if got, _ := wrapperSourceExe(console, true); got != console {
-		t.Errorf("--console gave %q, want %q", got, console)
+	// Asked for by name, it is found.
+	got, isWindowless, err = wrapperSourceExe(console, true)
+	if err != nil {
+		t.Fatalf("wrapperSourceExe(--windowless): %v", err)
+	}
+	if got != windowless || !isWindowless {
+		t.Errorf("--windowless gave %q (windowless=%v), want %q", got, isWindowless, windowless)
+	}
+}
+
+// Asking for the windowless build without having it is an error, not a silent
+// fall back to a build that behaves differently.
+func TestWrapperSourceExeRefusesWindowlessWithoutTheBinary(t *testing.T) {
+	dir := t.TempDir()
+	self := filepath.Join(dir, executableName("exe-env-wrapper"))
+	writeFile(t, self, "console only")
+
+	_, _, err := wrapperSourceExe(self, true)
+	if err == nil {
+		t.Fatal("wrapperSourceExe accepted --windowless with no windowless build present")
+	}
+	if !strings.Contains(err.Error(), "-w") {
+		t.Errorf("error %q should say which file is missing", err)
 	}
 }
 
@@ -232,7 +260,10 @@ func TestWrapperSourceExeFallsBackToSelf(t *testing.T) {
 	self := filepath.Join(dir, executableName("exe-env-wrapper"))
 	writeFile(t, self, "console only")
 
-	got, windowless := wrapperSourceExe(self, false)
+	got, windowless, err := wrapperSourceExe(self, false)
+	if err != nil {
+		t.Fatalf("wrapperSourceExe: %v", err)
+	}
 	if got != self || windowless {
 		t.Errorf("got %q (windowless=%v), want %q and false", got, windowless, self)
 	}
