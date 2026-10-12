@@ -241,11 +241,10 @@ func findWindowlessSibling(selfPath string) (string, bool) {
 	return "", false
 }
 
-// runWrap is the --wrap command.
-func runWrap(out io.Writer, args []string) error {
-	tool := firstOperand(args)
+// runWrap is the wrap command.
+func runWrap(out io.Writer, tool string, opts map[string]bool) error {
 	if tool == "" {
-		return fmt.Errorf("--wrap needs a tool name or path")
+		return fmt.Errorf("wrap needs a tool name or path; try \"help wrap\"")
 	}
 	dir, err := wrapperFolder()
 	if err != nil {
@@ -255,7 +254,7 @@ func runWrap(out io.Writer, args []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot determine own path: %w", err)
 	}
-	source, windowless := wrapperSourceExe(self, hasFlag(args, "--console"))
+	source, windowless := wrapperSourceExe(self, opts["--console"])
 	if windowless {
 		fmt.Fprintf(out, "using    %s (windowless)\n", filepath.Base(source))
 	}
@@ -263,7 +262,7 @@ func runWrap(out io.Writer, args []string) error {
 		tool:        tool,
 		wrapperDir:  dir,
 		sourceExe:   source,
-		writeConfig: hasFlag(args, "--config"),
+		writeConfig: opts["--config"],
 		pathEntries: effectivePathEntries(),
 		probe:       realPathProbe(),
 		out:         out,

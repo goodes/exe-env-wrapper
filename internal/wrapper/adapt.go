@@ -151,17 +151,16 @@ func writeAdaptConfig(p adaptParams, path, aside string) error {
 	return nil
 }
 
-// runAdapt is the --adapt command.
-func runAdapt(out io.Writer, args []string) error {
-	file := firstOperand(args)
+// runAdapt is the adapt command.
+func runAdapt(out io.Writer, file string, opts map[string]bool) error {
 	if file == "" {
-		return fmt.Errorf("--adapt needs a path to a binary")
+		return fmt.Errorf("adapt needs a path to a binary; try \"help adapt\"")
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("cannot determine own path: %w", err)
 	}
-	source, windowless := wrapperSourceExe(self, hasFlag(args, "--console"))
+	source, windowless := wrapperSourceExe(self, opts["--console"])
 	if windowless {
 		fmt.Fprintf(out, "using     %s (windowless)\n", filepath.Base(source))
 	}
@@ -169,7 +168,7 @@ func runAdapt(out io.Writer, args []string) error {
 		file:      file,
 		ownDir:    filepath.Dir(self),
 		sourceExe: source,
-		force:     hasFlag(args, "--force"),
+		force:     opts["--force"],
 		out:       out,
 	})
 }

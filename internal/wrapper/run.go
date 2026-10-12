@@ -21,9 +21,16 @@ var Version = "dev"
 // nowhere to say so.
 const LogEnvVar = "EXE_ENV_WRAPPER_LOG"
 
-// Run is the whole program: read the config named after this executable, apply
-// its environment, and hand off to the target. The returned value is the
-// target's exit code, or ExitError if the wrapper could not get that far.
+// Run picks which of the two programs this is, by the name it was invoked
+// under.
+//
+// Under its own name the command line is the wrapper's own and nothing is run.
+// Under any other name the wrapper stands in for a tool, and every argument
+// belongs to that tool, so its --help, --version and its own subcommands all
+// still reach it.
+//
+// Only the console build takes commands. The windowless build has no console
+// to print to and is a runtime payload, installed by the console build.
 func Run() int {
 	exePath, err := os.Executable()
 	if err != nil {
@@ -31,18 +38,19 @@ func Run() int {
 		return ExitError
 	}
 
+	if ownFlagsEnabled && hasWrapperName(BaseName(exePath)) {
+		return runCommandMode(os.Args[1:], os.Stdout)
+	}
+	return runWrapperMode(exePath)
+}
+
+// runWrapperMode is the wrapper proper: read the config named after this
+// executable, apply its environment, and hand off to the target. The returned
+// value is the target's exit code, or ExitError if it could not get that far.
+func runWrapperMode(exePath string) int {
 	rep := &reporter{stderr: os.Stderr, name: BaseName(exePath)}
 	if path := os.Getenv(LogEnvVar); path != "" {
 		rep.logPath = ResolvePath(path, filepath.Dir(exePath))
-	}
-
-	// Under its own name, and only in the build that has a console to print
-	// to, an argument may be the wrapper's own. Under any other name every
-	// argument belongs to the target, so a wrapped tool's --help stays its own.
-	if ownFlagsEnabled && hasWrapperName(rep.name) {
-		if code, handled := handleOwnFlags(os.Args[1:], os.Stdout); handled {
-			return code
-		}
 	}
 
 	cfg, cfgPath, err := LoadConfig(exePath)

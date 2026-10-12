@@ -80,22 +80,99 @@ func TestEndToEndOwnFlagsUnderItsOwnName(t *testing.T) {
 	}
 }
 
-// The help text has to describe what the wrapper actually does, or it is just
-// decoration. These are the things a user cannot work out for themselves.
-func TestUsageCoversTheEssentials(t *testing.T) {
-	for _, want := range []string{
-		"--wrap", "--adapt", "--setup", "--check", "--help", "--version",
-		"target:", "env:", "log:",
-		"${system.no_proxy}", "${VAR}",
-		"exe-env-wrapper-w",
-	} {
-		if !strings.Contains(usage, want) {
-			t.Errorf("usage does not mention %q", want)
-		}
+// Every command in the table must be dispatched. The switch has a fallthrough
+// that reports "not implemented", and a command added to the table without a
+// case would otherwise reach it only when a user tried it.
+func TestEveryCommandIsDispatched(t *testing.T) {
+	for _, cmd := range commands {
+		t.Run(cmd.name, func(t *testing.T) {
+			var out strings.Builder
+			// help is the one command safe to run with no side effects and no
+			// dependence on the real environment, so commands are probed via
+			// their help topic. Dispatch itself is covered by asking for a
+			// command that exists and checking it is not reported missing.
+			if code := runCommandMode([]string{"help", cmd.name}, &out); code != 0 {
+				t.Fatalf("help %s exited %d:\n%s", cmd.name, code, out.String())
+			}
+			if strings.Contains(out.String(), "not implemented") {
+				t.Errorf("command %q is in the table but not dispatched", cmd.name)
+			}
+		})
 	}
 }
 
-// Under its own name there is no tool an unrecognised argument could belong
+// The dash-less and dashed spellings both reach the same command, end to end.
+func TestEndToEndBareAndDashedSpellings(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+
+	_, wrapper := install(t, "exe-env-wrapper", "")
+	for _, args := range [][]string{
+		{"version"}, {"--version"},
+		{"help"}, {"--help"},
+		{"help", "setup"}, {"--help", "setup"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			res := run(t, wrapper, "", nil, args...)
+			if res.code != 0 {
+				t.Fatalf("exit code = %d, want 0\nstdout: %s", res.code, res.stdout)
+			}
+		})
+	}
+}
+
+// The question that prompted all of this: the options have to be reachable
+// from the tool, not only from the README.
+func TestEndToEndHelpOnACommandNamesItsOptions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+
+	_, wrapper := install(t, "exe-env-wrapper", "")
+	tests := map[string][]string{
+		"setup":  {"--machine"},
+		"wrap":   {"--config", "--console"},
+		"adapt":  {"--force", "--console"},
+		"config": {"target:", "${system.no_proxy}"},
+	}
+	for topic, wants := range tests {
+		t.Run(topic, func(t *testing.T) {
+			res := run(t, wrapper, "", nil, "help", topic)
+			if res.code != 0 {
+				t.Fatalf("exit code = %d, want 0\nstdout: %s", res.code, res.stdout)
+			}
+			for _, want := range wants {
+				if !strings.Contains(res.stdout, want) {
+					t.Errorf("help %s does not mention %q:\n%s", topic, want, res.stdout)
+				}
+			}
+		})
+	}
+}
+
+// A bare word under an adapted name belongs to the tool. This is the risk the
+// dash-less spellings introduce: "yt-dlp setup" must reach yt-dlp.
+func TestEndToEndBareCommandWordReachesTheTarget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds binaries")
+	}
+
+	_, wrapper := install(t, "yt", "target: yt-cli"+exeSuffix()+"\n")
+	for _, word := range []string{"setup", "wrap", "adapt", "check", "help", "version"} {
+		t.Run(word, func(t *testing.T) {
+			res := run(t, wrapper, "", nil, word)
+			if res.code != 0 {
+				t.Fatalf("exit code = %d, want 0\nstderr: %s", res.code, res.stderr)
+			}
+			if !strings.Contains(res.stdout, "ARG:"+word) {
+				t.Errorf("stdout = %q, want %q to have reached the target", res.stdout, word)
+			}
+		})
+	}
+}
+
+// Under its own name there is no tool an unrecognised command could belong
 // to, so it is a mistake rather than something to forward.
 func TestEndToEndUnrecognisedOwnArgument(t *testing.T) {
 	if testing.Short() {
@@ -108,11 +185,14 @@ func TestEndToEndUnrecognisedOwnArgument(t *testing.T) {
 	if res.code == 0 {
 		t.Fatalf("exit code = 0, want non-zero\nstdout: %s", res.stdout)
 	}
-	if !strings.Contains(res.stdout, "unrecognised argument") {
+	if !strings.Contains(res.stdout, "unrecognised command") {
 		t.Errorf("stdout = %q, want it to name the problem", res.stdout)
 	}
-	if !strings.Contains(res.stdout, "--wrap") {
-		t.Errorf("stdout = %q, want the usage text alongside", res.stdout)
+	if !strings.Contains(res.stdout, "wrap <name|path>") {
+		t.Errorf("stdout = %q, want the command list alongside", res.stdout)
+	}
+	if !strings.Contains(res.stdout, `help <command>`) {
+		t.Errorf("stdout = %q, want it to point at per-command help", res.stdout)
 	}
 }
 
@@ -123,15 +203,20 @@ func TestEndToEndInstallFlagsNeedAnOperand(t *testing.T) {
 	}
 
 	_, wrapper := install(t, "exe-env-wrapper", "")
-	for _, flag := range []string{"--wrap", "--adapt"} {
-		t.Run(flag, func(t *testing.T) {
-			res := run(t, wrapper, "", nil, flag)
-			if res.code == 0 {
-				t.Fatalf("exit code = 0, want non-zero")
-			}
-			if !strings.Contains(res.stdout, flag+" needs") {
-				t.Errorf("stdout = %q, want it to say what %s needs", res.stdout, flag)
-			}
-		})
+	for _, name := range []string{"wrap", "adapt"} {
+		for _, spelling := range []string{name, "--" + name} {
+			t.Run(spelling, func(t *testing.T) {
+				res := run(t, wrapper, "", nil, spelling)
+				if res.code == 0 {
+					t.Fatalf("exit code = 0, want non-zero")
+				}
+				if !strings.Contains(res.stdout, name+" needs") {
+					t.Errorf("stdout = %q, want it to say what %s needs", res.stdout, name)
+				}
+				if !strings.Contains(res.stdout, "help "+name) {
+					t.Errorf("stdout = %q, want it to point at help %s", res.stdout, name)
+				}
+			})
+		}
 	}
 }

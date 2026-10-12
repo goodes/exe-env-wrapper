@@ -14,8 +14,8 @@ that is hard to do otherwise: clients built on httpx honour `HTTP_PROXY` and
 hosts get sent to the proxy and fail.
 
 ```powershell
-exe-env-wrapper-windows-amd64.exe --setup        # once
-exe-env-wrapper-windows-amd64.exe --wrap yt-dlp  # per tool
+exe-env-wrapper-windows-amd64.exe setup        # once
+exe-env-wrapper-windows-amd64.exe wrap yt-dlp  # per tool
 ```
 
 ## Downloads
@@ -45,7 +45,7 @@ The wrapper stands in for a tool under that tool's own name, and reads
 
 There are two ways to put it in front of a tool.
 
-**The wrapper folder, `--wrap`.** The wrapper is installed into
+**The wrapper folder, `wrap`.** The wrapper is installed into
 `~/.local/wrapper`, which sits ahead of the tool on `PATH`. The real binary is
 never touched, and the wrapper finds it at run time by looking for its own name
 further along `PATH`. Nothing an installer does can undo this: `uv tool
@@ -53,11 +53,11 @@ upgrade` regenerates its launchers and `claude.exe` rewrites itself, and
 neither one knows the wrapper folder exists. Use this wherever callers invoke
 the tool by name.
 
-**In place, `--adapt`.** The real binary is renamed aside with a tag of its
+**In place, `adapt`.** The real binary is renamed aside with a tag of its
 contents and the wrapper takes its old name. This is for callers that hard-code
 an absolute path, where `PATH` is never consulted and the wrapper folder cannot
 help. It is the weaker option: an installer that regenerates that binary
-overwrites the wrapper and silently undoes it, so `--adapt` has to be re-run
+overwrites the wrapper and silently undoes it, so `adapt` has to be re-run
 afterwards.
 
 Renamed to stand in for a tool, the wrapper takes no flags of its own: every
@@ -69,48 +69,61 @@ Under its own name it takes the flags below.
 Once, to create the wrapper folder and put it on `PATH`:
 
 ```powershell
-.\exe-env-wrapper-windows-amd64.exe --setup
+.\exe-env-wrapper-windows-amd64.exe setup
 ```
 
 Then per tool:
 
 ```powershell
-.\exe-env-wrapper-windows-amd64.exe --wrap yt-dlp
+.\exe-env-wrapper-windows-amd64.exe wrap yt-dlp
 ```
 
 That is the whole thing. The tool keeps working as before, now with the
 system's proxy settings applied, and `yt-dlp` still resolves to the real
 binary wherever it lives.
 
-| Flag | |
+| Command | |
 | --- | --- |
-| `--setup` | Create `~/.local/wrapper` and prepend it to your user `PATH`. `--setup --machine` writes the machine `PATH` instead, which needs administrator rights. |
-| `--wrap <name>` | Wrap a tool found on `PATH`. Resolution stays dynamic, so the tool can be upgraded or moved. |
-| `--wrap <path>` | Wrap exactly that binary, pinned in a config file. |
-| `--adapt <path>` | Replace a binary in place. For hard-coded paths only. |
-| `--check` | Report what each installed wrapper resolves to, and whether it is reachable. |
-| `--help`, `--version` | Usage, and the build version. |
+| `setup [--machine]` | Create `~/.local/wrapper` and prepend it to your user `PATH`. `--machine` writes the machine `PATH` instead, which needs administrator rights and is the only way to get ahead of a tool in `C:\Program Files`. |
+| `wrap <name> [--config] [--console]` | Wrap a tool found on `PATH`. Resolution stays dynamic, so the tool can be upgraded or moved. |
+| `wrap <path>` | Wrap exactly that binary, pinned in a config file. |
+| `adapt <path> [--force] [--console]` | Replace a binary in place. For hard-coded paths only. |
+| `check` | Report what each installed wrapper resolves to, and whether it is reachable. |
+| `help [command]`, `version` | This list, detail on one command, and the build version. |
 
-`--wrap` adds `--config` to write the defaults out for editing, and `--console`
-to install the console build rather than the windowless one. `--adapt` adds
-`--force` to replace an existing config.
+Dashes are optional: `setup` and `--setup` are the same command, since under
+its own name there is no tool the arguments could belong to.
+
+**Everything is reachable from the tool itself.** `help` lists the commands,
+`help <command>` prints that command's detail and every option it takes, and
+`help config` explains the config file. The option list is generated from the
+same table the parser uses, so an option the tool accepts cannot be missing
+from its help.
+
+```powershell
+.\exe-env-wrapper-windows-amd64.exe help setup
+```
+
+Under an adapted name none of this applies: every argument belongs to the
+wrapped tool, so `yt-dlp help`, `yt-dlp --help` and `yt-dlp setup` all reach
+yt-dlp untouched.
 
 ### A note on PATH ordering, if a tool stays unwrapped
 
 Windows composes `PATH` as every machine entry first, then every user entry. A
 user entry therefore can never come before a machine one, whatever their order
-within each list. So `--setup` puts the wrapper folder ahead of anything in
+within each list. So `setup` puts the wrapper folder ahead of anything in
 your user `PATH` — which is where `uv`-installed tools and `claude.exe` live —
 but cannot get ahead of a tool in `C:\Program Files`. For those, either
-`--setup --machine` (administrator rights) or `--adapt`.
+`setup --machine` (administrator rights) or `adapt`.
 
-`--setup` and `--check` both say which directories still precede the wrapper
+`setup` and `check` both say which directories still precede the wrapper
 folder, so this shows up when you run them rather than as a tool that
 mysteriously ignores its wrapper.
 
 ## Example: adapting a launcher by hand
 
-`--wrap` and `--adapt` do this for you. It is written out here because it shows
+`wrap` and `adapt` do this for you. It is written out here because it shows
 exactly what the wrapper needs on disk, which is worth seeing once if you are
 debugging a setup or arranging one some other way.
 
@@ -159,10 +172,10 @@ env:
 YAML
 ```
 
-> **Caveat, for `--adapt` only:** `uv tool upgrade` and
+> **Caveat, for `adapt` only:** `uv tool upgrade` and
 > `uv tool install --reinstall` regenerate the launcher, which overwrites a
-> wrapper installed over it. Re-run `--adapt` afterwards; the `.yaml` file is
-> left alone. This is the reason to prefer `--wrap`, which an upgrade cannot
+> wrapper installed over it. Re-run `adapt` afterwards; the `.yaml` file is
+> left alone. This is the reason to prefer `wrap`, which an upgrade cannot
 > touch.
 
 ## Config reference
@@ -271,8 +284,9 @@ A `.yml` extension works too, with `.yaml` preferred when both exist.
   `log` if it is set. A missing config file is not one of them: a wrapper
   without one runs on the built-in defaults.
 - Under its own name the exit status is the command's own: `0` for success, `1`
-  for a failed `--setup`, `--wrap` or `--adapt`, or for a `--check` that found
-  a problem, and `2` for an argument it does not recognise.
+  for a failed `setup`, `wrap` or `adapt`, or for a `check` that found a
+  problem, and `2` for a command it does not recognise, an option that belongs
+  to a different command, or a missing operand.
 - An unknown key in the config file is an error rather than ignored, so a
   mistyped `targett:` is reported instead of quietly doing nothing.
 - On Linux the wrapper `exec`s in place, replacing its own process, so nothing
