@@ -176,13 +176,12 @@ yt.yaml, foo.exe reads foo.yaml. A .yml extension works too.
   env:                      Optional. Variables to set or override. Anything
     HTTP_PROXY: http://p:1  not named here is inherited unchanged.
   log: wrapper.log          Optional. A file the wrapper appends its own
-                            record to: the command line of every run, and any
-                            failure of its own. Nothing is written when it is
-                            not set.
-  trace: wrapper-trace.log  Optional, and off unless set. Copies the target's
-                            stdin, stdout and stderr into a file, each line
-                            marked << for input, >> for output and !! for
-                            stderr.
+                            failures to, and only those. A run that worked
+                            writes nothing, so the file staying empty means
+                            nothing went wrong.
+  trace: wrapper-trace.log  Optional. Where a transcript goes.
+  trace_level: 1            Optional, 1 when trace is set. How much goes in
+                            it.
 
 Values may refer to ${VAR}, resolved against the inherited environment plus any
 earlier entry in the same block, so PATH: C:\extra\bin;${PATH} extends rather
@@ -210,16 +209,36 @@ proxy configured does not have an inherited HTTP_PROXY blanked out.
 An unknown key is an error rather than ignored, so a mistyped targett: is
 reported instead of quietly doing nothing.
 
-log and trace do different jobs and cost different amounts. log is one line
-per run and never touches the target's streams. trace puts the wrapper in the
-data path: without it the target inherits the standard handles directly, and on
-Linux the wrapper is replaced by the target altogether, so nothing sits between
-the caller and the tool. Tracing gives that up, and writes whatever passed
-through to a plain file, which for a stdio protocol means the whole
-conversation. Turn it on to debug something, not to leave running.
+The trace levels, each including the ones below it:
 
-A trace that cannot be opened is reported and the tool runs anyway: losing a
-debugging aid must not take the tool down.`,
+  1   The resolved target and the command line.
+  2   Also the target's stdin, stdout and stderr, marked << >> and !!. For a
+      stdio tool, an MCP server among them, that is the whole conversation.
+  3   Also every variable the wrapper changed, with the value it had before
+      and the value it was given, verbatim. This is what answers "why is this
+      variable not what I configured", including the variables the wrapper
+      declined to set because their value came to nothing.
+
+Level 1 is the default because it is free: only level 2 and above has to copy
+the streams through the wrapper. Below that the target inherits the standard
+handles directly, and on Linux the wrapper is replaced by the target
+altogether, so nothing sits between the caller and the tool. At level 2 and
+above the real stream is always written before the transcript, so a slow trace
+cannot delay a protocol message, but it is still something to turn on to
+investigate rather than leave running.
+
+A wrapper installed by wrap has no config file, so it has nowhere to put these.
+Two environment variables say the same thing from outside, which also lets a
+wrapper be watched without editing the installation being watched:
+
+  EXE_ENV_WRAPPER_TRACE=/path/to/trace.log
+  EXE_ENV_WRAPPER_TRACE_LEVEL=3
+
+They win over the config file, since they are reached for when something is
+already misbehaving. Nothing about a trace can fail the run: a level with
+nowhere to write, an unreadable level, or a file that cannot be opened is
+reported, and the tool runs anyway. Losing a debugging aid must not take the
+tool down with it.`,
 }
 
 // lookupCommand finds a command by name, with or without the leading dashes.

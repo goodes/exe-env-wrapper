@@ -272,3 +272,17 @@ func TestEndToEndAbsoluteTarget(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0\nstderr: %s", res.code, res.stderr)
 	}
 }
+
+// goBuildVersioned builds with a version stamped in, the way scripts/build.sh
+// does, so the stamp can be read back out of a real binary.
+func goBuildVersioned(t *testing.T, dir, pkg, out, version string) {
+	t.Helper()
+	ldflags := "-X github.com/goodes/exe-env-wrapper/internal/wrapper.VersionStamp=" +
+		versionStampPrefix + version
+	cmd := exec.Command("go", "build", "-ldflags", ldflags, "-o", out, pkg)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local")
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build %s: %v\n%s", pkg, err, combined)
+	}
+}

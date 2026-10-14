@@ -11,6 +11,28 @@ import (
 // through ${VAR} to whatever is visible at that point: the inherited
 // environment plus any earlier entry in the same block.
 func BuildEnv(base []string, vars []EnvVar) ([]string, error) {
+	env, _, err := buildEnv(base, vars, loadSystemProxy)
+	return env, err
+}
+
+// EnvChange records what the wrapper did to one variable, for a level 3
+// trace. It answers the question a user asks when a variable is not what they
+// configured: what was it, what is it now, and did the wrapper touch it at
+// all.
+type EnvChange struct {
+	Name string
+	// Before and HadBefore are the inherited value, if there was one.
+	Before    string
+	HadBefore bool
+	// After is the value the wrapper resolved.
+	After string
+	// Applied is false when the value expanded to nothing and the variable was
+	// a built-in default, so the inherited value was left alone.
+	Applied bool
+}
+
+// BuildEnvWithChanges is BuildEnv, also reporting what it changed.
+func BuildEnvWithChanges(base []string, vars []EnvVar) ([]string, []EnvChange, error) {
 	return buildEnv(base, vars, loadSystemProxy)
 }
 
@@ -31,7 +53,7 @@ var systemProxyFields = map[string]func(SystemProxy) string{
 
 // buildEnv is BuildEnv with the system proxy source injected, so the
 // expansion can be tested without a registry.
-func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, error)) ([]string, error) {
+func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, error)) ([]string, []EnvChange, error) {
 	out := make([]string, len(base))
 	copy(out, base)
 
@@ -73,18 +95,29 @@ func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, er
 		return "", nil
 	}
 
+	changes := make([]EnvChange, 0, len(vars))
 	for _, v := range vars {
 		usedSystem = false
 		value, err := Expand(v.Value, lookup)
 		if err != nil {
-			return nil, fmt.Errorf("env %s: %w", v.Name, err)
+			return nil, nil, fmt.Errorf("env %s: %w", v.Name, err)
 		}
 		if usedSystem {
 			value = collapseListSeparators(value)
 		}
+		change := EnvChange{Name: v.Name, After: value, Applied: true}
+		if i, ok := index[envKey(v.Name)]; ok {
+			_, before, _ := splitEntry(out[i])
+			change.Before, change.HadBefore = before, true
+		}
+
 		if value == "" && v.OmitIfEmpty {
+			change.Applied = false
+			changes = append(changes, change)
 			continue
 		}
+		changes = append(changes, change)
+
 		entry := v.Name + "=" + value
 		if i, ok := index[envKey(v.Name)]; ok {
 			out[i] = entry
@@ -93,7 +126,7 @@ func buildEnv(base []string, vars []EnvVar, load func([]string) (SystemProxy, er
 		index[envKey(v.Name)] = len(out)
 		out = append(out, entry)
 	}
-	return out, nil
+	return out, changes, nil
 }
 
 // envKey normalises a variable name for lookup. Windows environment names are

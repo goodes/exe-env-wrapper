@@ -26,11 +26,28 @@ type Config struct {
 	// line of every run, and any failure of its own. The windowless Windows
 	// build has no visible stderr, so it is often the only way to see them.
 	Log string
-	// Trace is an optional file the target's stdin, stdout and stderr are
-	// copied into. Setting it puts the wrapper in the data path, which the
-	// default deliberately avoids, so it is off unless asked for.
+	// Trace is an optional file the wrapper writes a transcript to.
 	Trace string
+	// TraceLevel is how much goes in it: 0 nothing, 1 the command, 2 also the
+	// target's streams, 3 also the variables the wrapper changed.
+	//
+	// It defaults to 1 when Trace is set, because level 1 keeps the wrapper
+	// out of the data path: only level 2 and above has to copy the streams
+	// through, which costs the inherited handles and, on Unix, exec-in-place.
+	TraceLevel int
 }
+
+// Trace levels, as they appear in a config file.
+const (
+	// TraceOff writes nothing.
+	TraceOff = 0
+	// TraceCommand records the resolved target and the command line.
+	TraceCommand = 1
+	// TraceStreams adds the target's stdin, stdout and stderr.
+	TraceStreams = 2
+	// TraceEnv adds every variable the wrapper changed, before and after.
+	TraceEnv = 3
+)
 
 // EnvVar is a single env entry. Keeping the file's order lets a later value
 // refer to an earlier one through ${VAR}.
@@ -71,10 +88,11 @@ func DefaultConfig() *Config {
 
 // rawConfig decodes env as a node rather than a map so the ordering survives.
 type rawConfig struct {
-	Target string    `yaml:"target"`
-	Env    yaml.Node `yaml:"env"`
-	Log    string    `yaml:"log"`
-	Trace  string    `yaml:"trace"`
+	Target     string    `yaml:"target"`
+	Env        yaml.Node `yaml:"env"`
+	Log        string    `yaml:"log"`
+	Trace      string    `yaml:"trace"`
+	TraceLevel *int      `yaml:"trace_level"`
 }
 
 // ParseConfig reads the YAML body of a wrapper config.
@@ -97,6 +115,12 @@ func ParseConfig(data []byte) (*Config, error) {
 	// shadow a tool whose real location it does not need to know, and survive
 	// that tool being regenerated or moved. Having nowhere to hand off to is
 	// reported at resolution time, where the search can be described.
+	level, err := traceLevel(raw.TraceLevel, cfg.Trace)
+	if err != nil {
+		return nil, err
+	}
+	cfg.TraceLevel = level
+
 	env, err := parseEnv(&raw.Env)
 	if err != nil {
 		return nil, err
@@ -243,4 +267,25 @@ func sameFile(a, b string) bool {
 		return false
 	}
 	return os.SameFile(sa, sb)
+}
+
+// traceLevel settles the trace level from what the file said.
+//
+// Absent with a trace file means 1: the command line, which needs no pipes.
+// Absent with no trace file means off. A level without a file is a mistake,
+// not a quiet no-op, and so is a level that does not exist.
+func traceLevel(given *int, file string) (int, error) {
+	if given == nil {
+		if file == "" {
+			return TraceOff, nil
+		}
+		return TraceCommand, nil
+	}
+	if file == "" {
+		return 0, errors.New(`"trace_level" set without "trace": there is nowhere to write it`)
+	}
+	if *given < TraceOff || *given > TraceEnv {
+		return 0, fmt.Errorf(`"trace_level" is %d, want %d to %d`, *given, TraceOff, TraceEnv)
+	}
+	return *given, nil
 }

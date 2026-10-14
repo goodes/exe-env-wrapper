@@ -15,8 +15,8 @@ import (
 // at all, as opposed to a status the target itself produced.
 const ExitError = 125
 
-// Version is set at build time with -ldflags "-X ...wrapper.Version=v1.2.3".
-var Version = "dev"
+// Version now lives in version.go, derived from the stamp that makes it
+// readable out of a compiled binary.
 
 // LogEnvVar names a log file for the bootstrap phase, before the config has
 // been read. A broken config in the windowless build would otherwise fail with
@@ -76,17 +76,19 @@ func runWrapperMode(exePath string) int {
 		rep.report(fmt.Errorf("%s: %w", cfgPath, err))
 		return ExitError
 	}
-	env, err := BuildEnv(os.Environ(), cfg.Env)
+	env, changes, err := BuildEnvWithChanges(os.Environ(), cfg.Env)
 	if err != nil {
 		rep.report(fmt.Errorf("%s: %w", cfgPath, err))
 		return ExitError
 	}
 
-	// Recorded before the target starts, so the log shows an invocation that
-	// then hung or was killed, not only ones that returned.
-	rep.recordRun(target, os.Args[1:])
+	traceFile, traceLevel, warn := resolveTrace(cfg.Trace, cfg.TraceLevel,
+		os.Getenv(TraceEnvVar), os.Getenv(TraceLevelEnvVar))
+	if warn != "" {
+		fmt.Fprintf(rep.stderr, "%s: %s\n", rep.name, warn)
+	}
 
-	code, err := runTarget(cfg, exePath, target, env, rep)
+	code, err := runTarget(traceFile, traceLevel, exePath, target, env, changes, rep)
 	if err != nil {
 		rep.report(fmt.Errorf("cannot run %s: %w", target, err))
 		return ExitError
@@ -94,28 +96,59 @@ func runWrapperMode(exePath string) int {
 	return code
 }
 
-// runTarget hands off to the target, through the trace path if one is asked
-// for.
+// runTarget hands off to the target, writing as much to the trace as the
+// level asks for.
 //
-// Without a trace the child inherits the standard handles directly and, on
-// Unix, the wrapper is replaced by the target altogether: nothing sits between
-// the caller and the tool, which is what keeps a stdio protocol exact. A trace
-// gives that up deliberately.
-func runTarget(cfg *Config, exePath, target string, env []string, rep *reporter) (int, error) {
-	if cfg.Trace == "" {
-		return execTarget(target, os.Args[1:], env)
+// Only level 2 and above puts the wrapper in the data path. Below that the
+// child inherits the standard handles directly and, on Unix, the wrapper is
+// replaced by the target altogether, so nothing sits between the caller and
+// the tool.
+func runTarget(traceFile string, level int, exePath, target string, env []string, changes []EnvChange, rep *reporter) (int, error) {
+	args := os.Args[1:]
+	if level == TraceOff || traceFile == "" {
+		return execTarget(target, args, env)
 	}
 
-	path := ResolvePath(cfg.Trace, filepath.Dir(exePath))
+	path := ResolvePath(traceFile, filepath.Dir(exePath))
 	sink, err := newTraceSink(path, rep.name, rep.stderr)
 	if err != nil {
 		// A trace that cannot be opened is reported, and the tool still runs
 		// untraced. Losing a debugging aid must not take the tool down.
 		rep.report(err)
-		return execTarget(target, os.Args[1:], env)
+		return execTarget(target, args, env)
 	}
 	defer sink.Close()
-	return execTargetTraced(target, os.Args[1:], env, sink)
+
+	// Written before the target starts, so a run that then hung or was killed
+	// still appears.
+	sink.recordLine("run " + target + " " + renderArgs(args))
+
+	if level >= TraceEnv {
+		for _, change := range changes {
+			sink.recordLine(describeEnvChange(change))
+		}
+	}
+
+	if level >= TraceStreams {
+		return execTargetTraced(target, args, env, sink)
+	}
+	return execTarget(target, args, env)
+}
+
+// describeEnvChange renders one variable's before and after for a level 3
+// trace.
+func describeEnvChange(c EnvChange) string {
+	before := "(unset)"
+	if c.HadBefore {
+		before = strconv.Quote(c.Before)
+	}
+	if !c.Applied {
+		// The case a user would otherwise find baffling: a variable they
+		// configured that is not set, because the value came to nothing and
+		// blanking an inherited one would have been worse.
+		return fmt.Sprintf("env %s: left as %s (value expanded to nothing)", c.Name, before)
+	}
+	return fmt.Sprintf("env %s: %s -> %s", c.Name, before, strconv.Quote(c.After))
 }
 
 // reporter writes wrapper failures to stderr and, when a log path is known, to
@@ -125,20 +158,6 @@ type reporter struct {
 	stderr  io.Writer
 	name    string
 	logPath string
-}
-
-// recordRun notes an invocation in the log file: what was asked for, and what
-// it resolved to. Nothing is written when no log is configured, so the common
-// case still touches no files.
-//
-// The arguments are rendered with any that contain spaces quoted, which is a
-// readable approximation rather than the exact bytes the target receives. On
-// Windows the raw command line is forwarded verbatim and is logged as such.
-func (r *reporter) recordRun(target string, args []string) {
-	if r.logPath == "" {
-		return
-	}
-	r.write(fmt.Sprintf("run %s %s", target, renderArgs(args)))
 }
 
 // renderArgs makes an argument list readable in a log line.

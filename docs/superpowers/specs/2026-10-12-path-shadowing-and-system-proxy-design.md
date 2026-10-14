@@ -49,6 +49,31 @@ Later, in v0.3.1 and v0.3.2:
   case, which also added round-trip tests that fail on buffering rather than
   hanging.
 
+And in v0.3.3:
+
+- log went back to failures only. A run that works writes nothing, so an empty
+  file means nothing went wrong, which is worth more than a record of every
+  invocation.
+- trace became levelled: 1 the command, 2 also the streams, 3 also every
+  variable changed with its before and after value, verbatim. 1 is the default
+  because only 2 and above has to copy the streams through the wrapper.
+- Level 3 reports the variables the wrapper declined to set, which is the
+  question it exists to answer. That exposed a hole: the declining is done
+  only by the built-in defaults, which apply only when there is no config
+  file, and trace could only be set in a config file. So the case was
+  unreachable, and worse, the installation wrap actually produces could not be
+  traced at all. EXE_ENV_WRAPPER_TRACE and EXE_ENV_WRAPPER_TRACE_LEVEL fix
+  both, following the EXE_ENV_WRAPPER_LOG precedent, and win over the config
+  because they are reached for when something is already misbehaving.
+- The version is stamped with a searchable prefix, so it can be read out of an
+  installed wrapper. An installed wrapper is named after its tool, so asking
+  it for its version would pass "version" to that tool. This is what v0.4.0's
+  upgrade needs.
+  Finding the stamp needed hits to be filtered rather than taken first: the
+  prefix exists in the binary as the constant used to search for it, ahead of
+  the stamped value, and the first match returned the string the linker had
+  placed after that constant.
+
 ## Purpose
 
 Two problems, one wrapper.

@@ -277,3 +277,52 @@ func TestParseConfigRejectsUnknownKeys(t *testing.T) {
 		t.Errorf("error %q should name the unknown key", err)
 	}
 }
+
+// trace names the file; trace_level says how much goes in it. The level
+// defaults to 1, which keeps the wrapper out of the data path: only level 2
+// and above needs pipes.
+func TestParseConfigTraceLevels(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantFile  string
+		wantLevel int
+	}{
+		{name: "neither", body: "target: a\n", wantFile: "", wantLevel: 0},
+		{name: "file only defaults to 1", body: "target: a\ntrace: t.log\n", wantFile: "t.log", wantLevel: 1},
+		{name: "explicit 2", body: "target: a\ntrace: t.log\ntrace_level: 2\n", wantFile: "t.log", wantLevel: 2},
+		{name: "explicit 3", body: "target: a\ntrace: t.log\ntrace_level: 3\n", wantFile: "t.log", wantLevel: 3},
+		{name: "explicit 0 disables", body: "target: a\ntrace: t.log\ntrace_level: 0\n", wantFile: "t.log", wantLevel: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfig([]byte(tt.body))
+			if err != nil {
+				t.Fatalf("ParseConfig: %v", err)
+			}
+			if cfg.Trace != tt.wantFile {
+				t.Errorf("Trace = %q, want %q", cfg.Trace, tt.wantFile)
+			}
+			if cfg.TraceLevel != tt.wantLevel {
+				t.Errorf("TraceLevel = %d, want %d", cfg.TraceLevel, tt.wantLevel)
+			}
+		})
+	}
+}
+
+// A level with nowhere to write, or a level that does not exist, is a config
+// mistake worth reporting rather than quietly doing nothing.
+func TestParseConfigRejectsBadTraceLevels(t *testing.T) {
+	cases := map[string]string{
+		"level without a file": "target: a\ntrace_level: 2\n",
+		"level too high":       "target: a\ntrace: t.log\ntrace_level: 4\n",
+		"negative level":       "target: a\ntrace: t.log\ntrace_level: -1\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseConfig([]byte(body)); err == nil {
+				t.Fatalf("ParseConfig(%q) succeeded, want an error", body)
+			}
+		})
+	}
+}

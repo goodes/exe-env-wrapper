@@ -181,13 +181,15 @@ YAML
 ## Config reference
 
 ```yaml
-target: yt-cli.exe          # required
+target: yt-cli.exe          # optional: omitted means "next on PATH"
 env:                        # optional
   HTTP_PROXY: http://proxy.example:8080
   HTTPS_PROXY: ${HTTP_PROXY}
   NO_PROXY: localhost,127.0.0.1
   PATH: C:\extra\bin;${PATH}
-log: yt-wrapper.log         # optional
+log: yt-wrapper.log         # optional: failures only
+trace: yt-trace.log         # optional: where a transcript goes
+trace_level: 1              # optional: 1 command, 2 streams, 3 variables
 ```
 
 **`target`** (optional) is the binary to run. Absolute, or relative to the
@@ -263,29 +265,51 @@ the problem this is here to avoid.
 On Linux there is no system proxy store, so the three names resolve from the
 inherited environment, matching either case, keeping one config file portable.
 
-**`log`** (optional) is a file the wrapper appends its own record to, resolved
-beside the wrapper if relative: one line for the command line of every run, and
-one for any failure of its own. Nothing is written when it is not set. Worth
-setting for the windowless build, whose stderr usually goes nowhere. To catch a
-config file so broken that `log` itself cannot be read, set
-`EXE_ENV_WRAPPER_LOG` in the environment instead.
+**`log`** (optional) is a file the wrapper appends its own failures to, and
+only those, resolved beside the wrapper if relative. A run that worked writes
+nothing, so the file staying empty means nothing went wrong. Worth setting for
+the windowless build, whose stderr usually goes nowhere. To catch a config file
+so broken that `log` itself cannot be read, set `EXE_ENV_WRAPPER_LOG` in the
+environment instead.
 
-**`trace`** (optional, off unless set) copies the target's `stdin`, `stdout`
-and `stderr` into a file, each line marked `<<` for input, `>>` for output and
-`!!` for stderr. For a stdio tool, an MCP server over stdio among them, that is
-the whole conversation.
+**`trace`** (optional) is where a transcript goes, and **`trace_level`**
+(optional, `1` when `trace` is set) is how much goes in it. Each level includes
+the ones below it:
 
-It costs something, which is why it is not the default. Without it the target
-inherits the standard handles directly, and on Linux the wrapper `exec`s in
-place and ceases to exist, so nothing sits between the caller and the tool.
-Tracing puts the wrapper in that data path. The real stream is always written
-before the transcript, so a slow or failing trace cannot delay a protocol
-message, and nothing waits for a newline — a peer may be blocked on a reply
-that has not been terminated yet. Even so, turn it on to debug something rather
-than leaving it on.
+| Level | |
+| --- | --- |
+| `1` | the resolved target and the command line |
+| `2` | also the target's `stdin`, `stdout` and `stderr`, marked `<<` `>>` `!!` |
+| `3` | also every variable the wrapper changed, before and after, verbatim |
 
-A trace that cannot be opened is reported and the tool runs anyway: losing a
-debugging aid must not take the tool down with it.
+Level 3 is the one that answers "why is this variable not what I configured",
+and it reports the variables the wrapper *declined* to set as well — a built-in
+default whose value came to nothing, where blanking an inherited value would
+have been worse.
+
+Level 1 is the default because it is free. Only level 2 and above has to copy
+the streams through the wrapper; below that the target inherits the standard
+handles directly, and on Linux the wrapper `exec`s in place and ceases to
+exist, so nothing sits between the caller and the tool. At level 2 and above
+the real stream is always written before the transcript, so a slow or failing
+trace cannot delay a protocol message, and nothing waits for a newline — a peer
+may be blocked on a reply that has not been terminated yet. Even so, it is for
+investigating something rather than leaving on.
+
+A wrapper installed by `wrap` has no config file, so it has nowhere to put
+these. Two environment variables say the same thing from outside, which also
+lets a wrapper be watched without editing the installation being watched:
+
+```powershell
+$env:EXE_ENV_WRAPPER_TRACE = "$env:TEMP\yt.log"
+$env:EXE_ENV_WRAPPER_TRACE_LEVEL = "3"
+yt-dlp --version
+```
+
+They win over the config file, since they are reached for when something is
+already misbehaving. Nothing about a trace can fail the run: a level with
+nowhere to write, an unreadable level, or a file that cannot be opened is
+reported on stderr and the tool runs anyway.
 
 A `.yml` extension works too, with `.yaml` preferred when both exist.
 

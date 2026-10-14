@@ -12,7 +12,10 @@ set -euo pipefail
 version="${1:-dev}"
 out="${OUT:-dist}"
 pkg=./cmd/exe-env-wrapper
-stamp="-X github.com/goodes/exe-env-wrapper/internal/wrapper.Version=${version}"
+# Stamped with a prefix so the version can be read out of an installed
+# wrapper, which is named after the tool it stands in for and so cannot be
+# asked for its version on the command line.
+stamp="-X github.com/goodes/exe-env-wrapper/internal/wrapper.VersionStamp=exe-env-wrapper-version=${version}"
 
 rm -rf "$out"
 mkdir -p "$out"

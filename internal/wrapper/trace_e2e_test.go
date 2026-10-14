@@ -11,36 +11,8 @@ import (
 	"time"
 )
 
-// Every run is recorded, not only the failures, so the log answers "what was
-// this actually called with".
-func TestEndToEndLogRecordsTheCommandLine(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds binaries")
-	}
-
-	dir, wrapper := install(t, "yt", "target: yt-cli"+exeSuffix()+"\nlog: yt.log\n")
-	res := run(t, wrapper, "", nil, "-f", "bestaudio", "a file with spaces.webm")
-	if res.code != 0 {
-		t.Fatalf("exit code = %d, want 0\nstderr: %s", res.code, res.stderr)
-	}
-
-	body, err := os.ReadFile(filepath.Join(dir, "yt.log"))
-	if err != nil {
-		t.Fatalf("reading the log: %v", err)
-	}
-	got := string(body)
-
-	for _, want := range []string{"run ", "yt-cli", "bestaudio", "a file with spaces.webm"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("log does not contain %q:\n%s", want, got)
-		}
-	}
-	// The resolved target is logged, not just the name asked for, because
-	// which binary ran is the question a log is read to answer.
-	if !strings.Contains(got, dir) {
-		t.Errorf("log does not name the resolved target path:\n%s", got)
-	}
-}
+// The command line moved out of the log and into trace level 1 in v0.3.3, so
+// what the log records is covered by TestEndToEndLogCarriesOnlyFailures.
 
 // Without a log configured nothing is written anywhere, so the common case
 // still touches no files.
@@ -83,8 +55,9 @@ func TestEndToEndTraceCapturesBothDirections(t *testing.T) {
 
 	wrapperPath := filepath.Join(dir, "server"+exeSuffix())
 	goBuild(t, repoRoot(t), "./cmd/exe-env-wrapper", wrapperPath)
+	// Level 2: the streams. Level 1, the default, records only the command.
 	write(t, filepath.Join(dir, "server.yaml"),
-		"target: server-cli"+exeSuffix()+"\ntrace: server-trace.log\n")
+		"target: server-cli"+exeSuffix()+"\ntrace: server-trace.log\ntrace_level: 2\n")
 
 	cmd := exec.Command(wrapperPath)
 	cmd.Stdin = strings.NewReader("initialize\ntools/list\n")
@@ -138,7 +111,7 @@ func TestEndToEndTracedStdioStillRoundTrips(t *testing.T) {
 	wrapperPath := filepath.Join(dir, "server"+exeSuffix())
 	goBuild(t, repoRoot(t), "./cmd/exe-env-wrapper", wrapperPath)
 	write(t, filepath.Join(dir, "server.yaml"),
-		"target: server-cli"+exeSuffix()+"\ntrace: server-trace.log\n")
+		"target: server-cli"+exeSuffix()+"\ntrace: server-trace.log\ntrace_level: 2\n")
 
 	cmd := exec.Command(wrapperPath)
 	stdin, err := cmd.StdinPipe()

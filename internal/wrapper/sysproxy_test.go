@@ -144,7 +144,7 @@ func TestBuildEnvExpandsSystemProxyNames(t *testing.T) {
 		NoProxy:    "internal.example",
 	})
 
-	out, err := buildEnv(nil, []EnvVar{
+	out, _, err := buildEnv(nil, []EnvVar{
 		{Name: "HTTP_PROXY", Value: "${system.http_proxy}"},
 		{Name: "HTTPS_PROXY", Value: "${system.https_proxy}"},
 		{Name: "NO_PROXY", Value: "${system.no_proxy},localhost"},
@@ -173,7 +173,7 @@ func TestBuildEnvExpandsSystemProxyNames(t *testing.T) {
 // fails the run rather than expanding to empty, which would otherwise show up
 // as a proxy setting that silently does nothing.
 func TestBuildEnvRejectsUnknownSystemName(t *testing.T) {
-	_, err := buildEnv(nil, []EnvVar{
+	_, _, err := buildEnv(nil, []EnvVar{
 		{Name: "NO_PROXY", Value: "${system.no_proxyy}"},
 	}, fixedSystemProxy(SystemProxy{}))
 
@@ -198,7 +198,7 @@ func TestBuildEnvReadsSystemSettingsLazilyAndOnce(t *testing.T) {
 		return SystemProxy{NoProxy: "internal.example"}, nil
 	}
 
-	if _, err := buildEnv(nil, []EnvVar{{Name: "PATH", Value: "/usr/bin"}}, load); err != nil {
+	if _, _, err := buildEnv(nil, []EnvVar{{Name: "PATH", Value: "/usr/bin"}}, load); err != nil {
 		t.Fatalf("buildEnv: %v", err)
 	}
 	if calls != 0 {
@@ -206,7 +206,7 @@ func TestBuildEnvReadsSystemSettingsLazilyAndOnce(t *testing.T) {
 	}
 
 	calls = 0
-	if _, err := buildEnv(nil, []EnvVar{
+	if _, _, err := buildEnv(nil, []EnvVar{
 		{Name: "A", Value: "${system.no_proxy}"},
 		{Name: "B", Value: "${system.http_proxy}"},
 		{Name: "C", Value: "${system.no_proxy}"},
@@ -225,7 +225,7 @@ func TestBuildEnvReadsSystemSettingsLazilyAndOnce(t *testing.T) {
 func TestBuildEnvCollapsesEmptySystemListEntries(t *testing.T) {
 	load := fixedSystemProxy(SystemProxy{})
 
-	out, err := buildEnv(nil, []EnvVar{
+	out, _, err := buildEnv(nil, []EnvVar{
 		{Name: "NO_PROXY", Value: "${system.no_proxy},localhost"},
 		{Name: "BOTH_ENDS", Value: "${system.no_proxy},a,${system.no_proxy},b,${system.no_proxy}"},
 	}, load)
@@ -252,7 +252,7 @@ func TestBuildEnvCollapsesEmptySystemListEntries(t *testing.T) {
 // the same position keeps its stray separator, as it does in a shell and as it
 // always has here.
 func TestBuildEnvLeavesOrdinaryEmptyExpansionsAlone(t *testing.T) {
-	out, err := buildEnv(nil, []EnvVar{
+	out, _, err := buildEnv(nil, []EnvVar{
 		{Name: "NO_PROXY", Value: "${NOT_SET},localhost"},
 	}, fixedSystemProxy(SystemProxy{}))
 	if err != nil {
@@ -265,5 +265,46 @@ func TestBuildEnvLeavesOrdinaryEmptyExpansionsAlone(t *testing.T) {
 	}
 	if want := ",localhost"; got != want {
 		t.Errorf("NO_PROXY = %q, want %q", got, want)
+	}
+}
+
+// Level 3 answers "why is this variable not what I configured", so it has to
+// report what each one was before, what it became, and the ones the wrapper
+// decided to leave alone.
+func TestBuildEnvReportsWhatItChanged(t *testing.T) {
+	base := []string{"HTTP_PROXY=http://old:1", "KEEP=untouched"}
+	vars := []EnvVar{
+		{Name: "HTTP_PROXY", Value: "http://new:2"},
+		{Name: "NO_PROXY", Value: "internal.example"},
+		{Name: "HTTPS_PROXY", Value: "${system.https_proxy}", OmitIfEmpty: true},
+	}
+
+	_, changes, err := buildEnv(base, vars, fixedSystemProxy(SystemProxy{}))
+	if err != nil {
+		t.Fatalf("buildEnv: %v", err)
+	}
+
+	byName := make(map[string]EnvChange, len(changes))
+	for _, c := range changes {
+		byName[c.Name] = c
+	}
+
+	// Overridden: both values known.
+	if got := byName["HTTP_PROXY"]; !got.HadBefore || got.Before != "http://old:1" ||
+		got.After != "http://new:2" || !got.Applied {
+		t.Errorf("HTTP_PROXY change = %+v, want an override from old to new", got)
+	}
+	// Newly set: nothing before.
+	if got := byName["NO_PROXY"]; got.HadBefore || got.After != "internal.example" || !got.Applied {
+		t.Errorf("NO_PROXY change = %+v, want a new value with nothing before", got)
+	}
+	// Declined: a default that expanded to nothing leaves the inherited value
+	// alone, which is the case a user would otherwise be baffled by.
+	if got := byName["HTTPS_PROXY"]; got.Applied {
+		t.Errorf("HTTPS_PROXY change = %+v, want it reported as not applied", got)
+	}
+	// Variables the config never mentions are not changes.
+	if _, ok := byName["KEEP"]; ok {
+		t.Error("an inherited variable the config never mentions was reported as changed")
 	}
 }

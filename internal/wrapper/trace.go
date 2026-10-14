@@ -175,3 +175,23 @@ func execTargetTraced(target string, args, env []string, sink *traceSink) (int, 
 	}
 	return 0, nil
 }
+
+// recordLine writes one line of the wrapper's own commentary, as distinct from
+// the stream contents the direction markers carry.
+func (t *traceSink) recordLine(message string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.w == nil {
+		return
+	}
+	if _, err := fmt.Fprintf(t.w, "%s -- %s\n", time.Now().Format("15:04:05.000"), message); err != nil {
+		if !t.reported {
+			fmt.Fprintf(t.stderr, "%s: trace write failed, continuing untraced: %v\n", t.name, err)
+			t.reported = true
+		}
+		t.w = nil
+	}
+}
