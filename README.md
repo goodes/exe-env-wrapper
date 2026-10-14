@@ -109,6 +109,40 @@ Under an adapted name none of this applies: every argument belongs to the
 wrapped tool, so `yt-dlp help`, `yt-dlp --help` and `yt-dlp setup` all reach
 yt-dlp untouched.
 
+### The config file `--config` writes
+
+`wrap <tool> --config` writes the whole config file, with everything except the
+proxy block commented out, so the file itself shows what else can be set rather
+than only what it currently does:
+
+```yaml
+# yt-dlp.yaml - read by the wrapper named yt-dlp, sitting beside it.
+# Full reference: exe-env-wrapper help config
+
+# target: yt-dlp.exe
+#   What to run. Absolute, or relative to this file's directory. Left out,
+#   as it is here, it means "the next match for my own name on PATH", so
+#   the real tool can be upgraded or moved without touching this file.
+
+env:
+  HTTP_PROXY: ${system.http_proxy}
+  HTTPS_PROXY: ${system.https_proxy}
+  NO_PROXY: ${system.no_proxy}
+#   ...
+
+# log: yt-dlp.log
+#   ...
+
+# trace: yt-dlp-trace.log
+# trace_level: 1
+#   ...
+```
+
+Without `--config` no file is written at all, because a wrapper with none
+already applies exactly that proxy block. `adapt` always writes one, from the
+same template and with a live `target:`, since an adapted wrapper cannot
+resolve from `PATH`.
+
 ### Upgrading an installed wrapper
 
 A wrapper is a copy of this binary, so a new release does not reach the ones
