@@ -137,14 +137,11 @@ func writeAdaptConfig(p adaptParams, path, aside string) error {
 		return nil
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "target: %s\n", filepath.Base(aside))
-	b.WriteString("env:\n")
-	b.WriteString("  HTTP_PROXY: ${system.http_proxy}\n")
-	b.WriteString("  HTTPS_PROXY: ${system.https_proxy}\n")
-	b.WriteString("  NO_PROXY: ${system.no_proxy}\n")
-
-	if err := os.WriteFile(configPath, []byte(b.String()), 0o644); err != nil {
+	// An adapted wrapper cannot resolve from PATH, so its target is live. The
+	// rest of the template is commented, as wrap's is: somebody opening this
+	// file has the same question either way.
+	body := configTemplate(BaseName(path), filepath.Base(aside))
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", configPath, err)
 	}
 	fmt.Fprintf(p.out, "config    %s\n", configPath)

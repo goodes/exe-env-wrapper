@@ -121,16 +121,13 @@ func writeWrapConfig(p wrapParams, name, realPath string, pinned bool) error {
 		return nil
 	}
 
-	var b strings.Builder
+	// The full template, with everything but the env block commented out, so
+	// the file shows what else can be changed rather than only what it does.
+	target := ""
 	if pinned {
-		fmt.Fprintf(&b, "target: %s\n", realPath)
+		target = realPath
 	}
-	b.WriteString("env:\n")
-	b.WriteString("  HTTP_PROXY: ${system.http_proxy}\n")
-	b.WriteString("  HTTPS_PROXY: ${system.https_proxy}\n")
-	b.WriteString("  NO_PROXY: ${system.no_proxy}\n")
-
-	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(configTemplate(name, target)), 0o644); err != nil {
 		return fmt.Errorf("writing %s: %w", path, err)
 	}
 	fmt.Fprintf(p.out, "config    %s\n", path)

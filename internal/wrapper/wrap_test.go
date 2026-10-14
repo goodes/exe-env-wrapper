@@ -115,11 +115,27 @@ func TestWrapWithConfigFlagWritesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading config: %v", err)
 	}
-	if strings.Contains(string(body), "target:") {
-		t.Errorf("config = %q, want no target so resolution stays dynamic", body)
+
+	// Checked by parsing rather than by looking for the text: the template
+	// mentions every key in a comment, so "target:" appears either way. What
+	// matters is whether it takes effect.
+	cfg, err := ParseConfig(body)
+	if err != nil {
+		t.Fatalf("the written config does not parse: %v\n%s", err, body)
 	}
-	if !strings.Contains(string(body), "${system.no_proxy}") {
-		t.Errorf("config = %q, want the system proxy defaults", body)
+	if cfg.Target != "" {
+		t.Errorf("Target = %q, want none so resolution stays dynamic", cfg.Target)
+	}
+	if len(cfg.Env) == 0 {
+		t.Errorf("config = %q, want the system proxy defaults live", body)
+	}
+
+	// The commented remainder is the point of --config: it shows what else
+	// can be set.
+	for _, want := range []string{"# log:", "# trace:", "# trace_level:", "help config"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("config does not offer %q:\n%s", want, body)
+		}
 	}
 }
 
