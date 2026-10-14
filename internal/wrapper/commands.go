@@ -136,6 +136,40 @@ holds those contents. A binary that is already a wrapper is refused rather than
 adapted again.`,
 	},
 	{
+		name:    "upgrade",
+		operand: "<path>",
+		summary: "Replace one installed wrapper with this build.",
+		options: []option{{
+			name: "--force",
+			help: "Replace a wrapper that is already at this version.",
+		}},
+		detail: `Replaces the wrapper at the given path with this binary, reporting the version
+it had and the version it is getting.
+
+One at a time, named explicitly. There is no list of where wrappers were
+installed and no search of PATH: a stored list goes stale the moment a file is
+moved by hand, and searching PATH would mean scanning every binary on the
+machine. What makes naming a path safe is that the file is checked first, so
+pointing this at the wrong thing refuses rather than destroys.
+
+The version is read out of the file. An installed wrapper is named after the
+tool it stands in for, so asking it for its version would pass "version" to
+that tool instead. A wrapper installed before the stamp existed reads as
+"unknown" and is replaced anyway.
+
+The build variant is preserved: a windowless wrapper is replaced with the
+windowless build, which has to be sitting beside this one, and upgrade refuses
+rather than quietly installing the console build. That would make Windows
+allocate a console under a host that has none and flash a window on every run.
+The variant comes from the executable's own subsystem field, which is what
+actually makes the two builds differ, so it cannot be wrong.
+
+A wrapper that is currently running can still be replaced. Windows will not
+overwrite a running executable but will rename one, so the old file is moved
+aside and the new one written in its place. The old file is deleted if it can
+be, and named in the output if it cannot.`,
+	},
+	{
 		name:    "check",
 		summary: "Report what each installed wrapper resolves to.",
 		detail: `Lists every wrapper in the wrapper folder with the config it uses and the

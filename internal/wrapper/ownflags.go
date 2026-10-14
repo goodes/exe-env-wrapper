@@ -70,6 +70,8 @@ func runCommandMode(args []string, stdout io.Writer) int {
 		return report(stdout, runAdapt(stdout, operand, opts))
 	case "check":
 		return runCheck(stdout)
+	case "upgrade":
+		return report(stdout, runUpgrade(stdout, operand, opts))
 	}
 
 	// Unreachable while every command in the table is handled above, and a

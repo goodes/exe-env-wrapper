@@ -89,6 +89,7 @@ binary wherever it lives.
 | `wrap <path>` | Wrap exactly that binary, pinned in a config file. |
 | `adapt <path> [--force] [--windowless]` | Replace a binary in place. For hard-coded paths only. |
 | `check` | Report what each installed wrapper resolves to, and whether it is reachable. |
+| `upgrade <path> [--force]` | Replace one installed wrapper with this build, reporting the version it had. |
 | `help [command]`, `version` | This list, detail on one command, and the build version. |
 
 Dashes are optional: `setup` and `--setup` are the same command, since under
@@ -107,6 +108,50 @@ from its help.
 Under an adapted name none of this applies: every argument belongs to the
 wrapped tool, so `yt-dlp help`, `yt-dlp --help` and `yt-dlp setup` all reach
 yt-dlp untouched.
+
+### Upgrading an installed wrapper
+
+A wrapper is a copy of this binary, so a new release does not reach the ones
+already installed. `upgrade` replaces them, one at a time, named explicitly:
+
+```powershell
+.\exe-env-wrapper-windows-amd64.exe upgrade $env:USERPROFILE\.local\wrapper\yt-dlp.exe
+```
+
+```
+...\.local\wrapper\yt-dlp.exe
+  from  v0.3.1
+  to    v0.4.0
+  replaced
+```
+
+There is deliberately no enumeration and no record of where wrappers were
+installed: a stored list goes stale the moment a file is moved by hand, and
+searching `PATH` would mean scanning every binary on the machine. What makes
+naming a path safe is that **the file is checked before it is touched** — point
+it at something that is not an exe-env-wrapper and it refuses rather than
+overwrites:
+
+```
+...\bin\real-tool.exe is not an exe-env-wrapper; refusing to replace it
+```
+
+The version is read out of the file, because an installed wrapper is named
+after the tool it stands in for: asking it for its version would pass
+`version` to that tool. A wrapper installed before v0.3.3 carries no version
+stamp, reads as `unknown`, and is replaced anyway. One already at this version
+is left alone unless you pass `--force`.
+
+The build variant is preserved. A windowless wrapper is replaced with the
+windowless build, which has to be sitting beside this one — `upgrade` refuses
+rather than quietly installing the console build, which would make Windows
+allocate a console under a host that has none and flash a window on every run.
+
+A wrapper that is **currently running** can still be replaced. Windows will not
+overwrite a running executable but will rename one, so the old file is moved
+aside and the new one written in its place; a process still running the old
+copy carries on from the renamed file. That file is deleted if it can be, and
+named in the output if it cannot.
 
 ### A note on PATH ordering, if a tool stays unwrapped
 

@@ -286,3 +286,18 @@ func goBuildVersioned(t *testing.T, dir, pkg, out, version string) {
 		t.Fatalf("go build %s: %v\n%s", pkg, err, combined)
 	}
 }
+
+// goBuildWindowless builds the windowless variant, the way scripts/build.sh
+// does. Only meaningful on Windows, where the two builds differ.
+func goBuildWindowless(t *testing.T, out, version string) {
+	t.Helper()
+	ldflags := "-H windowsgui -X github.com/goodes/exe-env-wrapper/internal/wrapper.VersionStamp=" +
+		versionStampPrefix + version
+	cmd := exec.Command("go", "build", "-tags", "windowsgui", "-ldflags", ldflags,
+		"-o", out, "./cmd/exe-env-wrapper")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=local", "GOOS=windows")
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("go build windowless: %v\n%s", err, combined)
+	}
+}
